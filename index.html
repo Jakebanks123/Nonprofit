@@ -1,120 +1,44 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Benefit Finder — Helping government work for you</title>
-<link rel="stylesheet" href="style.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entitled To This — Find your benefits and local support (demo)</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="app-shell">
+
   <header class="site-header">
-    <div class="wrap">
-      <h1>Benefit Finder</h1>
-      <p class="tagline">Find UK government benefits and local council schemes you may be entitled to.</p>
+    <div class="logo-mark" aria-hidden="true">ET</div>
+    <div>
+      <div class="site-title">Entitled To This</div>
+      <div class="site-subtitle">Find the UK and local council support you may be owed</div>
     </div>
   </header>
 
-  <main class="wrap">
-    <section class="intro card">
-      <p>
-        Answer a few quick questions about your household and we'll show you government schemes and
-        local council support you might qualify for. This tool covers UK-wide benefits to start, with
-        local council schemes coming soon.
-      </p>
-    </section>
+  <div class="demo-banner">
+    <strong>This is a working prototype, not a live service.</strong>
+    Figures and thresholds below are illustrative approximations, not verified current rates. Local council schemes cover 12 pilot councils to test the concept. Always confirm details on GOV.UK or your council's website before relying on any figure here — this tool is not financial or legal advice. Nothing you type is stored, and the only thing ever sent anywhere is your postcode, if you use the lookup — sent to the free public postcodes.io API purely to identify your council.
+  </div>
 
-    <form id="eligibility-form" class="card">
-      <h2>Tell us about your household</h2>
+  <div class="card">
+    <div class="progress-track" id="progressTrack" aria-hidden="true"></div>
+    <div id="liveRegion" class="visually-hidden" aria-live="polite"></div>
+    <div id="stepContainer"></div>
+  </div>
 
-      <div class="field">
-        <label for="nation">Where do you live?</label>
-        <select id="nation" name="nation" required>
-          <option value="" disabled selected>Select a nation</option>
-          <option value="england">England</option>
-          <option value="scotland">Scotland</option>
-          <option value="wales">Wales</option>
-          <option value="northern-ireland">Northern Ireland</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="age">Your age</label>
-        <input type="number" id="age" name="age" min="16" max="110" required placeholder="e.g. 34" />
-      </div>
-
-      <div class="field">
-        <label for="income">Annual household income before tax (£)</label>
-        <input type="number" id="income" name="income" min="0" step="1" required placeholder="e.g. 18000" />
-        <p class="hint">Total income for everyone in your household, over the last 12 months.</p>
-      </div>
-
-      <div class="field">
-        <label for="employment">Employment status</label>
-        <select id="employment" name="employment" required>
-          <option value="" disabled selected>Select status</option>
-          <option value="employed">Employed</option>
-          <option value="self-employed">Self-employed</option>
-          <option value="unemployed">Unemployed / looking for work</option>
-          <option value="retired">Retired</option>
-          <option value="student">Student</option>
-          <option value="unable-to-work">Unable to work (long-term)</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="children">Number of dependent children (under 20, in full-time education or under 16)</label>
-        <input type="number" id="children" name="children" min="0" max="20" value="0" required />
-      </div>
-
-      <div class="field">
-        <label for="housing">Housing situation</label>
-        <select id="housing" name="housing" required>
-          <option value="" disabled selected>Select housing situation</option>
-          <option value="renting-private">Renting privately</option>
-          <option value="renting-social">Renting from council/housing association</option>
-          <option value="own-mortgage">Own home with mortgage</option>
-          <option value="own-outright">Own home outright</option>
-          <option value="living-with-family">Living with family/friends</option>
-        </select>
-      </div>
-
-      <fieldset class="field checkbox-group">
-        <legend>Do any of these apply to you or your household?</legend>
-        <label class="checkbox"><input type="checkbox" id="disability" name="disability" /> Living with a disability or health condition that affects daily life</label>
-        <label class="checkbox"><input type="checkbox" id="pregnant-or-under4" name="pregnant-or-under4" /> Pregnant, or have a child under 4 years old</label>
-        <label class="checkbox"><input type="checkbox" id="carer" name="carer" /> Caring for someone for 35+ hours a week</label>
-      </fieldset>
-
-      <button type="submit" class="btn-primary">Show my results</button>
-    </form>
-
-    <section id="results" class="results" hidden>
-      <h2>Schemes you may be eligible for</h2>
-      <p class="disclaimer">
-        These results are general guidance based on publicly available criteria, not a formal
-        assessment. Always confirm eligibility and apply via the official links below.
-      </p>
-      <div id="results-list" class="results-list"></div>
-      <div id="no-results" class="card" hidden>
-        <p>We didn't find a match with the sample scheme list yet. This tool currently covers a
-        starter set of well-known UK benefits — more schemes (including local council support) are
-        being added. Try the
-        <a href="https://www.gov.uk/benefits-calculators" target="_blank" rel="noopener">official
-        gov.uk benefits calculator</a> for a full check.</p>
-      </div>
-    </section>
-  </main>
-
-  <footer class="site-footer">
-    <div class="wrap">
-      <p>Benefit Finder is an independent, non-commercial project aiming to help people access
-      support they're entitled to. It is not affiliated with HM Government. Always double-check
-      eligibility on <a href="https://www.gov.uk" target="_blank" rel="noopener">gov.uk</a> or with
-      your local council.</p>
-    </div>
+  <footer class="disclaimer">
+    Illustrative rates approx. 2024/25, for demonstration only — verify at
+    <a href="https://www.gov.uk/browse/benefits" target="_blank" rel="noopener">gov.uk/browse/benefits</a>
+    before making any decisions. Built as a prototype nonprofit tool to help people find support they may be entitled to.
   </footer>
 
-  <script src="data/schemes.js"></script>
-  <script src="app.js"></script>
+</div>
+
+<!-- Load order matters: data first, then the app that uses it. -->
+<script src="data/postcodes.js"></script>
+<script src="data/schemes.js"></script>
+<script src="app.js"></script>
 </body>
 </html>

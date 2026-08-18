@@ -8,8 +8,13 @@ benefits and schemes they may be entitled to, with a direct link to check and ap
 
 ## Status
 
-Early MVP. Currently covers a starter set of well-known **UK-wide** benefits (see
-[`data/schemes.js`](data/schemes.js)). Local council-specific schemes are planned next.
+Early prototype. Covers a starter set of **UK-wide** benefits plus **local council schemes for 12
+pilot councils** (Birmingham, Bristol, Camden, Hackney, Leeds, Liverpool, Manchester, Newcastle,
+Nottingham, Sheffield, Tower Hamlets, Westminster).
+
+Postcode lookup covers **all 296 English local authorities** — so the app can always tell someone
+which council they're in, even where it doesn't yet have that council's scheme data. Scotland,
+Wales and Northern Ireland are not covered yet.
 
 ## Running it locally
 
@@ -24,29 +29,71 @@ No build step or dependencies required — it's a static site.
 
 ## How it works
 
-- `index.html` — the form and results layout.
+- `index.html` — the page shell and layout.
 - `style.css` — styling.
-- `data/schemes.js` — the list of schemes and the eligibility rule for each one, as a plain
-  JavaScript array. This is the main file to edit when adding or adjusting a scheme.
-- `app.js` — reads the form, checks each scheme's `eligible()` rule against the answers, and
+- `data/schemes.js` — the schemes and the eligibility rule for each one. **This is the main file
+  to edit when adding or adjusting a scheme.**
+- `data/postcodes.js` — the council list and postcode → council lookup, including a bundled
+  England-wide dataset derived from the ONS National Statistics Postcode Lookup.
+- `app.js` — reads the form, checks each scheme's `evaluate()` rule against the answers, and
   renders the matches.
 
-Adding a new scheme is just adding an object to the `SCHEMES` array in `data/schemes.js` with an
-`eligible(answers)` function — no other code needs to change.
+Adding a new scheme is just adding an object to `NATIONAL_SCHEMES` (or to a council's array in
+`LOCAL_SCHEMES`) in `data/schemes.js` with an `evaluate(input)` function — no other code needs to
+change. Two helper factories, `makeHouseholdSupportFund()` and `makeDiscretionaryHousingPayment()`,
+cover the two scheme types nearly every English council runs in some form, so adding a council is
+usually only a few lines.
+
+### How the postcode lookup works
+
+Two paths, in order:
+
+1. **postcodes.io** (live). Matches the exact postcode and stays current — it's built on the same
+   ONS Postcode Directory, refreshed quarterly.
+2. **Bundled ONS data** (fallback), used when that can't be reached. A May 2025 snapshot compressed
+   to postcode-outcode level, with finer postcode-sector entries wherever an outcode straddles more
+   than one council — which matters most in central London.
+
+Only the postcode itself is ever sent anywhere. Nothing else the user types leaves their browser,
+and nothing is stored.
+
+## Tests
+
+Browser tests use Playwright; the eligibility maths runs in plain Node.
+
+```bash
+node verify-maths.cjs        # eligibility maths vs hand-computed DWP rules
+node verify-edgecases.cjs    # negative/extreme/NaN input handling
+node verify-ui.js            # wizard flow, navigation, accessibility, mobile layout
+node verify-keyboard.js      # keyboard-only operation, scheme data sanity
+node test.js                 # end-to-end household scenarios
+```
+
+`verify-maths.cjs` is the important one: it hand-computes the correct answer for each case from the
+regulations, independently of the app's own code, so a wrong formula shows up as a mismatch rather
+than passing silently. It's what caught the four calculation errors documented in `FINDINGS.md`.
 
 ## Important note on accuracy
 
-The eligibility rules in this project are simplified approximations for demo purposes and are
-**not** a substitute for official guidance. Thresholds and criteria should be checked against
-gov.uk and updated regularly. This project is not affiliated with HM Government.
+The figures here are **illustrative approximations of 2024/25 rates** and are **not** a substitute
+for official guidance. They should be checked against gov.uk and updated each tax year. Local
+council scheme details are placeholders and need verifying against each council's own site.
+
+Where the national rules are easy to get wrong, the governing regulation is cited inline in
+`data/schemes.js` — for example the Universal Credit work allowance (reg 22, UC Regs 2013), the
+capital tariff income (reg 72), and Pension Credit deemed income (reg 15(6), SPC Regs 2002).
+
+This project is not affiliated with HM Government.
 
 ## Roadmap
 
-- [ ] Local council scheme data (starting with a few pilot councils)
-- [ ] Postcode-based lookup for council area
+- [x] Local council scheme data (12 pilot councils)
+- [x] Postcode-based lookup for council area (all 296 English councils)
+- [x] Basic automated tests for the eligibility rules
+- [ ] Verify local council scheme details against each council's own site
+- [ ] Expand local scheme coverage beyond the 12 pilot councils
 - [ ] Save/share results
-- [ ] Expand beyond England to nation-specific schemes (Scotland, Wales, NI have some differences)
-- [ ] Basic automated tests for the eligibility rules
+- [ ] Expand beyond England (Scotland, Wales and NI have real differences)
 - [ ] Deploy via GitHub Pages
 
 ## Contributing
