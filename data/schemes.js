@@ -7,7 +7,10 @@
    evaluate(input) returns either { eligible: false } or
    { eligible: true, confidence, amount, reason, note? }.
 
-   Figures are illustrative approximations of 2024/25 rates. The national
+   Figures are 2026/27 rates (uprated 6 April 2026). When the next uprating
+   lands, change the constants here AND the hand-computed expectations in
+   verify-maths.cjs in the same commit — otherwise the tests will disagree with
+   reality and it is ambiguous which side is wrong. The national
    rules were checked against the governing regulations (cited inline where
    they are easy to get wrong); local council figures are placeholders. */
 
@@ -47,9 +50,18 @@ const NATIONAL_SCHEMES = [
         return { eligible: false };
       }
       const standardAllowance = input.adults >= 2
-        ? (input.age < 25 ? 489.23 : 617.60)
-        : (input.age < 25 ? 311.68 : 393.45);
-      const childElement = input.children * 269.58;
+        ? (input.age < 25 ? 528.34 : 666.97)
+        : (input.age < 25 ? 338.58 : 424.90);
+
+      /* Child element. The higher first-child rate still applies where the
+         eldest was born before 6 April 2017.
+         The two-child limit was REMOVED from 6 April 2026 by the Universal
+         Credit (Removal of Two Child Limit) Act 2026, so every child now gets
+         an element — do not reintroduce a cap here. */
+      const childElement = input.children > 0
+        ? (input.eldestChildBornBefore2017 ? 351.88 : 303.94)
+          + Math.max(0, input.children - 1) * 303.94
+        : 0;
       const housingElement = input.housingCosts || 0;
       const maxAward = standardAllowance + childElement + housingElement;
 
@@ -58,7 +70,7 @@ const NATIONAL_SCHEMES = [
       // work. In any other case it is nil and every pound of earnings tapers.
       const qualifiesForWorkAllowance = input.children > 0 || input.limitedCapabilityForWork;
       const workAllowance = qualifiesForWorkAllowance
-        ? (input.housingCosts > 0 ? 404 : 673)
+        ? (input.housingCosts > 0 ? 427 : 710)
         : 0;
       const excessIncome = Math.max(0, input.monthlyIncome - workAllowance);
       const taper = excessIncome * 0.55;
@@ -99,7 +111,7 @@ const NATIONAL_SCHEMES = [
     category: "national",
     evaluate(input) {
       if (!isOverPensionAge(input)) return { eligible: false };
-      const threshold = input.adults >= 2 ? 332.95 : 218.15;
+      const threshold = input.adults >= 2 ? 363.25 : 238.00;
       // Reg 15(6), State Pension Credit Regs 2002: the first £10,000 of capital
       // is ignored; above that, capital is deemed to yield £1/week per £500 (or
       // part), added to income before the top-up is worked out. There is no
@@ -132,7 +144,7 @@ const NATIONAL_SCHEMES = [
     category: "national",
     evaluate(input) {
       if (input.children <= 0) return { eligible: false };
-      const weekly = 25.60 + Math.max(0, input.children - 1) * 16.95;
+      const weekly = 27.05 + Math.max(0, input.children - 1) * 17.90;
       const fullMonthly = (weekly * 52) / 12;
 
       // The High Income Child Benefit Charge is assessed on the HIGHEST

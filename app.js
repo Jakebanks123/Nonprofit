@@ -17,6 +17,7 @@ const state = {
     age: null,
     adults: 1,
     children: 0,
+    eldestChildBornBefore2017: false,
     employment: "employed",
     monthlyIncome: null,
     highestIndividualIncome: null,
@@ -258,6 +259,16 @@ function renderHouseholdStep() {
              min="0" max="15" value="${state.input.children}" aria-describedby="childrenHint">
       <p class="${UI.hint}" id="childrenHint">Under 16, or under 20 and in full-time education.</p>
     </div>
+
+    ${state.input.children > 0 ? `
+    <div class="${UI.group}">
+      <label class="flex items-start gap-3">
+        <input type="checkbox" id="eldestChildBornBefore2017" class="mt-1 size-5 shrink-0"
+               ${state.input.eldestChildBornBefore2017 ? "checked" : ""}>
+        <span class="text-base text-pretty text-ink sm:text-sm">My eldest child was born before 6 April 2017</span>
+      </label>
+      <p class="${UI.hint}">Universal Credit pays more for a first child born before that date, so this changes the amount.</p>
+    </div>` : ""}
   `;
 }
 
@@ -368,6 +379,7 @@ function sanitiseInput(raw) {
     age: num(raw.age, 16, 120, 16),
     adults: Math.round(num(raw.adults, 1, 10, 1)),
     children: Math.round(num(raw.children, 0, 15, 0)),
+    eldestChildBornBefore2017: !!raw.eldestChildBornBefore2017,
     monthlyIncome: num(raw.monthlyIncome, 0, 100000, 0),
     highestIndividualIncome: raw.highestIndividualIncome == null
       ? null
@@ -827,7 +839,22 @@ function wireStepInputs(stepName) {
     // Keep what the user actually typed rather than silently coercing it —
     // validateStep() gives them a named reason instead.
     document.getElementById("adults").addEventListener("input", e => state.input.adults = e.target.value === "" ? null : Number(e.target.value));
-    document.getElementById("children").addEventListener("input", e => state.input.children = e.target.value === "" ? 0 : Number(e.target.value));
+    document.getElementById("children").addEventListener("input", e => {
+      state.input.children = e.target.value === "" ? 0 : Number(e.target.value);
+      /* The eldest-child question only exists while there are children, so
+         re-render to show or hide it as that number changes. */
+      const hasBox = !!document.getElementById("eldestChildBornBefore2017");
+      if ((state.input.children > 0) !== hasBox) {
+        const pos = e.target.selectionStart;
+        render();
+        const again = document.getElementById("children");
+        if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
+      }
+    });
+    const eldestBox = document.getElementById("eldestChildBornBefore2017");
+    if (eldestBox) {
+      eldestBox.addEventListener("change", e => state.input.eldestChildBornBefore2017 = e.target.checked);
+    }
   } else if (stepName === "income") {
     document.getElementById("employment").addEventListener("change", e => state.input.employment = e.target.value);
     document.getElementById("monthlyIncome").addEventListener("input", e => state.input.monthlyIncome = e.target.value ? Number(e.target.value) : null);

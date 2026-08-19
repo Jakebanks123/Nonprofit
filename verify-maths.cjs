@@ -1,7 +1,11 @@
 /* Maths verification.
-   Each case states what REAL DWP 2024/25 rules would produce (computed by hand,
+   Each case states what REAL DWP 2026/27 rules would produce (computed by hand,
    independently of the app's code), then compares against what the app returns.
-   Purpose is to find structural modelling errors, not penny-level rate drift. */
+   Purpose is to find structural modelling errors, not penny-level rate drift.
+
+   Rates uprated 6 April 2026 (Commons Library CBP-10403). The two-child limit
+   was removed from the same date by the Universal Credit (Removal of Two Child
+   Limit) Act 2026, so every child attracts an element. */
 
 // Load the split files the same way the browser does. Classic <script> tags
 // share one global lexical scope, so concatenating them into a single vm
@@ -59,24 +63,22 @@ console.log('=========== UNIVERSAL CREDIT ===========\n');
    a child OR limited capability for work. A single childless adult with no
    health condition gets NO work allowance — every pound of earnings is
    tapered at 55%.
-   Hand-computed: standard 393.45 + housing 600 = 993.45 max award.
-   Earnings 400 taper fully: 400 * 0.55 = 220. Award = 993.45 - 220 = 773.45 */
+   Hand-computed: standard 424.90 + housing 600 = 1024.90 max award.
+   Earnings 400 taper fully: 400 * 0.55 = 220. Award = 1024.90 - 220 = 804.90 */
 check('UC: single childless adult, £400 earnings, £600 rent',
   ucAmount(baseInput({ age: 35, adults: 1, children: 0, monthlyIncome: 400, housingCosts: 600 })),
-  773.45, 0.5,
-  'app grants a work allowance the claimant is not entitled to');
+  804.90, 0.5,
+  'no work allowance: childless and no limited capability for work');
 
 /* CASE 2 — single parent, 2 children, renting.
    REAL RULE: has children -> work allowance applies. With housing costs the
-   2024/25 lower work allowance is 404.
-   Hand-computed: 393.45 + (2 children) + 750 housing.
-   NB real child elements 2024/25 are 333.33 (first, pre-2017 born) / 287.92
-   (others); the app uses a flat 269.58 for every child. Compare structure
-   using the app's own child rate so we isolate the work-allowance logic. */
+   2026/27 lower work allowance is 427.
+   Child elements 2026/27: 303.94 each, or 351.88 for a first child born before
+   6 April 2017. This case leaves that flag off, so both children are 303.94. */
 {
-  const childRate = 269.58;
-  const maxAward = 393.45 + 2 * childRate + 750;
-  const expected = maxAward - Math.max(0, 1100 - 404) * 0.55;
+  const childRate = 303.94;
+  const maxAward = 424.90 + 2 * childRate + 750;
+  const expected = maxAward - Math.max(0, 1100 - 427) * 0.55;
   check('UC: single parent 2 kids, £1100 earnings, £750 rent',
     ucAmount(baseInput({ age: 29, adults: 1, children: 2, monthlyIncome: 1100, housingCosts: 750 })),
     expected, 0.5, 'work allowance correctly applied here (claimant has children)');
@@ -89,8 +91,8 @@ check('UC: single childless adult, £400 earnings, £600 rent',
    -> 16 * 4.35 = 69.60/month deduction.
    Single parent as case 2 so the rest of the maths is identical. */
 {
-  const maxAward = 393.45 + 2 * 269.58 + 750;
-  const afterTaper = maxAward - Math.max(0, 1100 - 404) * 0.55;
+  const maxAward = 424.90 + 2 * 303.94 + 750;
+  const afterTaper = maxAward - Math.max(0, 1100 - 427) * 0.55;
   const expected = afterTaper - 69.60;
   check('UC: as above but £10,000 savings (tariff income)',
     ucAmount(baseInput({ age: 29, adults: 1, children: 2, monthlyIncome: 1100, housingCosts: 750, savings: 10000 })),
@@ -105,12 +107,33 @@ check('UC: £16,001 savings must be ineligible',
 
 {
   // exactly £16,000: eligible, with tariff income on the full £10,000 excess
-  const maxAward = 393.45 + 600;
+  const maxAward = 424.90 + 600;
   const tariff = Math.ceil((16000 - 6000) / 250) * 4.35; // 40 * 4.35 = 174.00
   const expected = maxAward - (400 * 0.55) - tariff;     // no work allowance: childless
   check('UC: exactly £16,000 savings must still be eligible',
     ucAmount(baseInput({ monthlyIncome: 400, housingCosts: 600, savings: 16000 })),
     expected, 0.5, 'boundary case — eligible, but heavily reduced by tariff income');
+}
+
+/* CASE 4c — first child born before 6 April 2017 attracts the higher element
+   (351.88 rather than 303.94). Same household as case 2 otherwise, so the
+   difference should be exactly 351.88 - 303.94 = 47.94. */
+{
+  const maxAward = 424.90 + 351.88 + 303.94 + 750;
+  const expected = maxAward - Math.max(0, 1100 - 427) * 0.55;
+  check('UC: single parent 2 kids, eldest born pre-6 Apr 2017',
+    ucAmount(baseInput({ age: 29, adults: 1, children: 2, monthlyIncome: 1100,
+                         housingCosts: 750, eldestChildBornBefore2017: true })),
+    expected, 0.5, 'higher first-child element');
+}
+
+/* CASE 4d — the two-child limit was removed from 6 April 2026, so a third
+   child must still add an element. Guards against anyone reinstating a cap. */
+{
+  const two = ucAmount(baseInput({ age: 29, adults: 1, children: 2, monthlyIncome: 1100, housingCosts: 750 }));
+  const three = ucAmount(baseInput({ age: 29, adults: 1, children: 3, monthlyIncome: 1100, housingCosts: 750 }));
+  check('UC: third child still adds an element (two-child limit removed)',
+    three - two, 303.94, 0.5, 'Removal of Two Child Limit Act 2026');
 }
 
 /* CASE 5 — over State Pension age should not get UC */
@@ -126,12 +149,12 @@ function pcAmount(input) {
 }
 
 /* CASE 6 — couple over pension age, low income.
-   REAL RULE 2024/25: Guarantee Credit tops income up to £332.95/wk (couple).
+   REAL RULE 2026/27: Guarantee Credit tops income up to £363.25/wk (couple).
    Hand-computed: income £900/mo = 900*12/52 = £207.69/wk.
-   Top-up = 332.95 - 207.69 = £125.26/wk = 125.26*52/12 = £542.79/mo */
+   Top-up = 363.25 - 207.69 = £155.56/wk */
 {
   const wk = 900 * 12 / 52;
-  const expected = (332.95 - wk) * 52 / 12;
+  const expected = (363.25 - wk) * 52 / 12;
   check('PC: couple 70, £900/mo income',
     pcAmount(baseInput({ age: 70, adults: 2, monthlyIncome: 900 })),
     expected, 0.5, 'guarantee credit top-up');
@@ -142,12 +165,11 @@ function pcAmount(input) {
    added to income before the top-up is worked out.
    Hand-computed for £15,000 savings, £600/mo income:
    income 600*12/52 = £138.46/wk; deemed = (15000-10000)/500 = 10 -> £10/wk.
-   Total assessed = £148.46/wk. Top-up = 218.15 - 148.46 = £69.69/wk
-   = £301.99/mo. */
+   Total assessed = £148.46/wk. Top-up = 238.00 - 148.46 = £89.54/wk. */
 {
   const wk = 600 * 12 / 52;
   const deemed = 10;
-  const expected = (218.15 - (wk + deemed)) * 52 / 12;
+  const expected = (238.00 - (wk + deemed)) * 52 / 12;
   check('PC: single 70, £600/mo income, £15,000 savings',
     pcAmount(baseInput({ age: 70, adults: 1, monthlyIncome: 600, savings: 15000 })),
     expected, 0.5, 'deemed income on capital above £10k');
@@ -161,11 +183,11 @@ function cbAmount(input) {
 }
 
 /* CASE 8 — 2 children, modest income.
-   REAL RULE 2024/25: £25.60/wk eldest + £16.95/wk each additional.
-   Hand-computed: (25.60 + 16.95) = £42.55/wk = 42.55*52/12 = £184.38/mo */
+   REAL RULE 2026/27: £27.05/wk eldest + £17.90/wk each additional.
+   Hand-computed: (27.05 + 17.90) = £44.95/wk = 44.95*52/12 = £194.78/mo */
 check('CB: 2 children, low income',
   cbAmount(baseInput({ children: 2, monthlyIncome: 1500 })),
-  (25.60 + 16.95) * 52 / 12, 0.5, 'standard rate');
+  (27.05 + 17.90) * 52 / 12, 0.5, 'standard rate');
 
 /* CASE 9 — COUPLE each earning £45k (household £90k take-home-ish).
    REAL RULE: the High Income Child Benefit Charge is assessed on the
@@ -175,14 +197,14 @@ check('CB: 2 children, low income',
    Hand-computed: full entitlement, £184.38/mo for 2 children. */
 check('CB: couple, 2 kids, £7,500/mo household, highest earner £3,750/mo (£45k)',
   cbAmount(baseInput({ adults: 2, children: 2, monthlyIncome: 7500, highestIndividualIncome: 3750 })),
-  (25.60 + 16.95) * 52 / 12, 0.5,
+  (27.05 + 17.90) * 52 / 12, 0.5,
   'both under £60k individually -> no charge, full Child Benefit');
 
 /* CASE 10 — single earner on £70,000 (£5,833/mo): HICBC tapers 50% away.
    Hand-computed: (70000-60000)/20000 = 0.5 clawback -> 184.38 * 0.5 = 92.19 */
 check('CB: single earner £70k, 2 kids (50% clawback)',
   cbAmount(baseInput({ adults: 1, children: 2, monthlyIncome: 70000 / 12 })),
-  ((25.60 + 16.95) * 52 / 12) * 0.5, 0.5, 'partial taper, not all-or-nothing');
+  ((27.05 + 17.90) * 52 / 12) * 0.5, 0.5, 'partial taper, not all-or-nothing');
 
 /* CASE 11 — single earner above £80,000: fully clawed back, but entitlement
    survives; app should still surface it (nil rate protects NI credits). */
