@@ -19,11 +19,16 @@ case.
 
 > **Note on the sections below.** They describe the intended Next.js / Prisma /
 > Doppler / Vercel setup. The project is not there yet — right now it is a
-> single self-contained `index.html` with no backend, no database, no build
-> step and no npm. Until that migration happens, the stack-specific rules
-> (migrations, server vs client components, `doppler run --`, `npm run build`)
-> do not apply, because there is nothing for them to apply to. Everything in
-> **Rules**, **Workflow**, **Reviewing** and **Not yet** does apply now.
+> static site (`index.html` plus `app.js`, `style.css` and `data/`) with no
+> backend, no database and no build step. There is a `package.json`, but only
+> to provide `npm test`; it has no dependencies. Until that migration happens,
+> the stack-specific rules (migrations, server vs client components,
+> `doppler run --`, `npm run build`, `npm run lint`) do not apply, because
+> there is nothing for them to apply to. Everything in **Rules**, **Workflow**,
+> **Reviewing** and **Not yet** does apply now.
+>
+> To run the checks today: `npm test`. Note it exits 0 even when the checks
+> find problems — read the SUMMARY block at the end of the output.
 
 - Next.js (App Router), TypeScript, React
 - Tailwind for styling

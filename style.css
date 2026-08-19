@@ -379,6 +379,10 @@
     padding-top: 16px;
   }
 
+  footer.disclaimer .attribution {
+    margin-top: 8px;
+  }
+
   .restart-row {
     text-align: center;
     margin-top: 24px;

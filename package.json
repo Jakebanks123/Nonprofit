@@ -1,0 +1,11 @@
+{
+  "name": "benefit-finder",
+  "version": "0.1.0",
+  "description": "Find the UK and local council support you may be entitled to",
+  "private": true,
+  "scripts": {
+    "test": "node verify-maths.cjs && node verify-edgecases.cjs",
+    "test:maths": "node verify-maths.cjs",
+    "test:edgecases": "node verify-edgecases.cjs"
+  }
+}
