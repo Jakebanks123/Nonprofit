@@ -14,6 +14,35 @@
    rules were checked against the governing regulations (cited inline where
    they are easy to get wrong); local council figures are placeholders. */
 
+/* The tax year these rates belong to. verify-maths.cjs fails once this is no
+   longer the current tax year, so stale rates announce themselves instead of
+   sitting unnoticed — which is exactly what happened between 2024/25 and
+   2026/27. Update this in the same commit as the rates. */
+const RATES_TAX_YEAR = "2026/27";
+
+/* Which UK tax year a given date falls in. Tax years run 6 April to 5 April,
+   so "2026/27" means 6 April 2026 to 5 April 2027. Used by the app to warn
+   users when the rates above have been overtaken, and by verify-maths.cjs to
+   fail the suite for the same reason — one definition, two consumers. */
+function ukTaxYearOf(date) {
+  const year = date.getFullYear();
+  const startsThisYear = new Date(year, 3, 6); // month index 3 = April
+  const startYear = date >= startsThisYear ? year : year - 1;
+  return { label: `${startYear}/${String((startYear + 1) % 100).padStart(2, "0")}`, startYear };
+}
+
+/* Null while the rates are current. Otherwise describes the gap, so callers
+   don't each have to work it out. */
+function ratesStaleness(now) {
+  const current = ukTaxYearOf(now || new Date());
+  if (current.label === RATES_TAX_YEAR) return null;
+  return {
+    declared: RATES_TAX_YEAR,
+    current: current.label,
+    startedOn: `6 April ${current.startYear}`
+  };
+}
+
 function weeklyIncome(input) {
   return (input.monthlyIncome * 12) / 52;
 }
@@ -605,7 +634,8 @@ const LOCAL_SCHEMES = {
 
 /* Exported for the Node test suite; ignored in the browser. */
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { NATIONAL_SCHEMES, LOCAL_SCHEMES, gbp,
+  module.exports = { NATIONAL_SCHEMES, LOCAL_SCHEMES, gbp, RATES_TAX_YEAR,
+    ukTaxYearOf, ratesStaleness,
     weeklyIncome, annualIncome, isOverPensionAge,
     makeHouseholdSupportFund, makeDiscretionaryHousingPayment };
 }

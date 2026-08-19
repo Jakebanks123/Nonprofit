@@ -99,4 +99,6 @@ if (!problems.length) {
 } else {
   console.log(problems.length + ' problem(s):\n');
   problems.forEach((p, i) => console.log(`${i + 1}. ${p}`));
+  /* Exit non-zero so `npm test` actually fails. */
+  process.exitCode = 1;
 }

@@ -551,6 +551,11 @@ function renderNoResults() {
       <p class="mt-2 text-base text-pretty text-muted">People often enter a yearly income where we asked for a monthly one. It is worth checking that first.</p>
     </div>
 
+    ${/* Matters most here: stale rates are lower than current ones, so someone
+          close to a threshold could be told they qualify for nothing when in
+          fact they would. */ ""}
+    ${renderStaleRatesNotice("nothing-found")}
+
     <h2 class="${SECTION_HEADING}">Where to get a proper check</h2>
     <p class="${SECTION_NOTE}">These are free, and a real person can look at things we cannot.</p>
     <ul role="list" class="flex flex-col gap-3">
@@ -614,6 +619,42 @@ function renderLocalSection(localResults) {
   );
 }
 
+
+/* Shown only once the rates in data/schemes.js have been overtaken by a new
+   tax year. Deliberately shows the real (old) figures rather than guessing at
+   new ones — uprating is not predictable enough to extrapolate, and inventing
+   numbers is the thing this app most needs not to do. Saying which direction
+   the error runs in is the useful part: uprating is essentially always upward,
+   so "a little higher" is safe.
+
+   NOTE ON CLASSES: dist/style.css is a compiled Tailwind build. Any class not
+   present in the source when it was last built simply does not exist at
+   runtime — it fails silently rather than erroring. An earlier version of this
+   used stroke-accent-600 for an icon and the icon rendered invisible. Either
+   reuse classes already in the build, or run `npm run build` after adding new
+   ones. Not using an icon also matches the app's other notice boxes. */
+function renderStaleRatesNotice(context) {
+  const stale = ratesStaleness();
+  if (!stale) return "";
+  /* "amounts" is wrong on the screen that shows none, and the consequence
+     differs too: there the risk is being told you qualify for nothing when
+     you would. */
+  const body = context === "nothing-found"
+    ? `This check used ${stale.declared} rates. New rates started on ${stale.startedOn}
+       and we have not updated yet, so you may qualify for a little more than we found.`
+    : `These amounts use ${stale.declared} rates. New rates started on ${stale.startedOn}
+       and we have not updated yet, so what you would actually get is likely to be a little higher.`;
+  return `
+    <div class="mt-3 rounded-field border border-accent-600/25 bg-accent-50 p-3">
+      <p class="text-base text-pretty text-accent-600 sm:text-sm">
+        ${body} Check
+        <a class="font-medium text-accent-600 underline underline-offset-2" href="https://www.gov.uk/browse/benefits"
+           target="_blank" rel="noopener noreferrer">GOV.UK<span class="sr-only"> (opens in a new tab)</span></a>
+        for the current figures.
+      </p>
+    </div>`;
+}
+
 function renderResultsStep() {
   const { nationalResults, localResults } = computeResults();
 
@@ -647,11 +688,13 @@ function renderResultsStep() {
       <p class="mt-1 text-base text-muted tabular-nums">in cash support — roughly ${gbp(roundTo(cashAnnual, 10))} a year</p>
       ${oneOffCash > 0 ? `<p class="mt-3 text-base text-pretty text-ink tabular-nums">Plus about ${gbp(roundTo(oneOffCash, 5))} in one-off payments.</p>` : ""}
       ${extras.length ? `<p class="mt-3 text-base text-pretty text-ink">You may also be able to get ${listToSentence(extras)}, listed below. ${extras.length === 1 ? "It lowers a bill or comes as a card rather than being paid to you, so it is" : "They lower a bill or come as a card rather than being paid to you, so they are"} not counted in the figure above.</p>` : ""}
+      ${renderStaleRatesNotice()}
       <p class="mt-3 text-base text-pretty text-muted">These are estimates based on a few questions. Check each one before you rely on it.</p>
     </div>
   ` : `
     <div class="results-summary rounded-field border border-line bg-canvas p-5">
       <p class="text-base text-pretty text-ink">We did not find any regular cash support from your answers, but the help below still applies to you.</p>
+      ${renderStaleRatesNotice()}
     </div>
   `;
 

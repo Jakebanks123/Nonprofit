@@ -22,7 +22,7 @@ const combined = ['data/postcodes.js', 'data/schemes.js', 'app.js']
   .join('\n;\n')
   + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS,
       ALL_ENGLAND_COUNCILS, ENGLAND_POSTCODE_DATA, matchOfflineCouncil,
-      resolveCouncilByName, sanitiseInput, gbp });`;
+      resolveCouncilByName, sanitiseInput, gbp, RATES_TAX_YEAR, ukTaxYearOf, ratesStaleness });`;
 vm.runInContext(combined, ctx, { filename: 'app-combined.js' });
 const app = ctx;
 
@@ -216,6 +216,33 @@ check('CB: single earner £70k, 2 kids (50% clawback)',
   if (!ok) findings.push({ label: 'CB nil-rate surfacing', app: JSON.stringify(r), expected: 'eligible with £0 + NI-credits note' });
 }
 
+/* ---------- STALENESS TRIPWIRE ----------
+   Benefit rates are uprated every 6 April. This app went two tax years without
+   an update because nothing complained. This fails the suite the moment the
+   rates are out of date, so it surfaces in `npm test` instead of waiting for
+   somebody to notice. Rule changes land on the same date as rate changes, so
+   read this as "go and check the uprating notes", not "swap some numbers". */
+{
+  /* ukTaxYearOf/ratesStaleness live in data/schemes.js, next to the rates they
+     describe, so the app's user-facing warning and this test agree by
+     construction rather than by two copies staying in step. */
+  const stale = app.ratesStaleness(new Date());
+  const ok = !stale;
+  console.log(`${ok ? 'MATCH ' : 'DIFF  '} Rates are current for this tax year`);
+  console.log(`        rates declare ${app.RATES_TAX_YEAR}  |  today falls in ${app.ukTaxYearOf(new Date()).label}`);
+  if (!ok) {
+    findings.push({
+      label: 'Rates are out of date',
+      app: `data/schemes.js declares RATES_TAX_YEAR = "${stale.declared}"`,
+      expected: `${stale.current} rates`,
+      note: 'Uprating happens every 6 April. Update the constants in data/schemes.js AND the '
+          + 'hand-computed expectations in this file in the same commit, then set RATES_TAX_YEAR. '
+          + 'Check for STRUCTURAL rule changes too, not just new numbers — the two-child limit was '
+          + 'abolished on the same day as the April 2026 uprating.'
+    });
+  }
+}
+
 console.log('\n=========== SUMMARY ===========\n');
 if (!findings.length) {
   console.log('No differences found.');
@@ -226,4 +253,8 @@ if (!findings.length) {
     console.log(`   app returned ${f.app}, real rules give ${f.expected}`);
     if (f.note) console.log(`   -> ${f.note}`);
   });
+  /* Exit non-zero so `npm test` actually fails. Without this the script printed
+     its findings and still reported success, which made the whole suite
+     incapable of failing. */
+  process.exitCode = 1;
 }
