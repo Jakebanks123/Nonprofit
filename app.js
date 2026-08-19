@@ -624,8 +624,11 @@ function renderResultsStep() {
 
   const summaryHtml = cashMonthly > 0 ? `
     <div class="results-summary rounded-field border border-line bg-canvas p-5">
-      <p class="text-base text-muted">You may be able to get</p>
-      <p class="mt-1 text-4xl font-semibold tracking-tight tabular-nums text-brand-800">about ${gbp(roundTo(cashMonthly, 5))} a month</p>
+      <p class="text-base text-muted">You may be able to get about</p>
+      <div class="mt-1 flex flex-wrap items-baseline gap-x-2">
+        <p class="text-4xl font-semibold tracking-tight tabular-nums text-brand-800">${gbp(roundTo(cashMonthly, 5))}</p>
+        <p class="text-xl font-medium text-brand-800">a month</p>
+      </div>
       <p class="mt-1 text-base text-muted tabular-nums">in cash support — roughly ${gbp(roundTo(cashAnnual, 10))} a year</p>
       ${oneOffCash > 0 ? `<p class="mt-3 text-base text-pretty text-ink tabular-nums">Plus about ${gbp(roundTo(oneOffCash, 5))} in one-off payments.</p>` : ""}
       ${extras.length ? `<p class="mt-3 text-base text-pretty text-ink">You may also be able to get ${listToSentence(extras)}, listed below. ${extras.length === 1 ? "It lowers a bill or comes as a card rather than being paid to you, so it is" : "They lower a bill or come as a card rather than being paid to you, so they are"} not counted in the figure above.</p>` : ""}
@@ -826,6 +829,17 @@ function wireStepInputs(stepName) {
 
 /* Bootstrap. Guarded so this file can also be loaded by the Node test suite,
    which exercises the eligibility logic without a DOM. */
+/* A printed page is where the caveats matter most, so open the disclosure
+   before printing rather than letting it print collapsed. */
+if (typeof window !== "undefined" && window.addEventListener) {
+  window.addEventListener("beforeprint", () => {
+    document.querySelectorAll("details").forEach(d => { d.dataset.wasOpen = d.open; d.open = true; });
+  });
+  window.addEventListener("afterprint", () => {
+    document.querySelectorAll("details").forEach(d => { d.open = d.dataset.wasOpen === "true"; });
+  });
+}
+
 if (typeof document !== "undefined") {
   render();
 }

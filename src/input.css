@@ -145,11 +145,16 @@
      persistence anywhere in this app — refresh and it is gone — so being
      able to print or save the results is the only way to take them away. */
   @media print {
-    /* The reader is holding paper; the interactive chrome is noise. */
+    /* The reader is holding paper; controls they cannot press are noise.
+       The disclosure is deliberately NOT hidden — a printed page is exactly
+       where the caveats need to be, so app.js opens it before printing. */
     #progressTrack,
-    details,
     button {
       display: none !important;
+    }
+    summary {
+      list-style: none;
+      font-weight: 600;
     }
     body {
       background: #fff;
