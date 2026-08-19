@@ -3,38 +3,70 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Entitled To This — Find your benefits and local support (demo)</title>
-<link rel="stylesheet" href="style.css">
+<title>Unlock Gov — check what support you may be able to get</title>
+<meta name="description" content="A free, independent tool that checks which UK benefits and local council schemes you may be able to get. Nothing you enter is stored. Not a government service.">
+<meta name="theme-color" content="#0f5c57">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png" sizes="180x180">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Unlock Gov">
+<meta property="og:description" content="Check what UK benefits and local council support you may be able to get. Free, independent, and nothing you enter is stored.">
+<link rel="stylesheet" href="dist/style.css">
 </head>
 <body>
-<div class="app-shell">
+<div class="mx-auto max-w-[760px] px-5 pt-6 pb-20">
 
-  <header class="site-header">
-    <div class="logo-mark" aria-hidden="true">ET</div>
-    <div>
-      <div class="site-title">Entitled To This</div>
-      <div class="site-subtitle">Find the UK and local council support you may be owed</div>
-    </div>
+  <header class="mb-5">
+    <a href="/" aria-label="Homepage" class="inline-flex items-center gap-3 rounded-field no-underline">
+      <span class="flex size-10 shrink-0 items-center justify-center rounded-field bg-brand-600">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="size-6 shrink-0 stroke-white" aria-hidden="true">
+          <path d="M4.5 21v-9a7.5 7.5 0 0 1 15 0v9"/>
+          <path d="m8.6 15.9 2.6 2.6 4.2-4.9"/>
+        </svg>
+      </span>
+      <span class="text-xl font-semibold tracking-tight text-brand-800">Unlock Gov</span>
+    </a>
+    <p class="mt-1.5 text-base text-pretty text-muted sm:text-sm">Find the UK and local council support you may be able to get.</p>
   </header>
 
-  <div class="demo-banner">
-    <strong>This is a working prototype, not a live service.</strong>
-    Figures and thresholds below are illustrative approximations, not verified current rates. Local council schemes cover 12 pilot councils to test the concept. Always confirm details on GOV.UK or your council's website before relying on any figure here — this tool is not financial or legal advice. Nothing you type is stored, and the only thing ever sent anywhere is your postcode, if you use the lookup — sent to the free public postcodes.io API purely to identify your council.
+  <p class="mb-5 border-l-2 border-brand-600 pl-3 text-base text-pretty text-muted sm:text-sm">
+    <span class="font-medium text-ink">Independent and free.</span> Not a government service, and not connected to the DWP or your council.
+  </p>
+
+  <div class="mb-6 rounded-field border border-line bg-surface p-4">
+    <p class="text-base text-pretty text-ink sm:text-sm">
+      These are estimates, not decisions. Always check the official page before you rely on a figure.
+    </p>
+    <details class="mt-2">
+      <summary class="cursor-pointer text-base font-medium text-brand-800 underline underline-offset-2 sm:text-sm">How this works and what it can't tell you</summary>
+      <div class="mt-3 space-y-2 text-base text-pretty text-muted sm:text-sm">
+        <p>This is a test version, not a real service.</p>
+        <p>The amounts here are estimates. They may not match what you actually get.</p>
+        <p>Local council help only covers 12 councils so far.</p>
+        <p>Always check GOV.UK or your council's website before you rely on any number here.</p>
+        <p>This is not financial or legal advice.</p>
+        <p>We do not save anything you type. If you use the postcode search, only your postcode is sent — to a free public service called postcodes.io — so we can find your council.</p>
+      </div>
+    </details>
   </div>
 
-  <div class="card">
-    <div class="progress-track" id="progressTrack" aria-hidden="true"></div>
-    <div id="liveRegion" class="visually-hidden" aria-live="polite"></div>
+  <main class="rounded-card border border-line bg-surface p-6 shadow-card sm:p-7">
+    <div class="mb-6 flex gap-1.5" id="progressTrack" aria-hidden="true"></div>
+    <div id="liveRegion" class="sr-only" aria-live="polite"></div>
     <div id="stepContainer"></div>
-  </div>
+  </main>
 
-  <footer class="disclaimer">
-    Illustrative rates approx. 2024/25, for demonstration only — verify at
-    <a href="https://www.gov.uk/browse/benefits" target="_blank" rel="noopener">gov.uk/browse/benefits</a>
-    before making any decisions. Built as a prototype nonprofit tool to help people find support they may be entitled to.
-    <div class="attribution">
+  <footer class="mt-8 border-t border-line pt-4 text-base text-pretty text-muted sm:text-sm">
+    <p>
+      The rates here are estimates from around 2024/25. This is a test tool, not a real service.
+      Check <a class="font-normal text-brand-800 underline underline-offset-2" href="https://www.gov.uk/browse/benefits" target="_blank" rel="noopener noreferrer">gov.uk/browse/benefits<span class="sr-only"> (opens in a new tab)</span></a> before you make any decisions.
+    </p>
+    <p class="mt-2">We are a non-profit. We built this to help people find support they may be able to get.</p>
+    <p class="mt-3">
+      Our postcode list comes from the Office for National Statistics.
       Contains public sector information from the ONS National Statistics Postcode Lookup, licensed under the Open Government Licence v3.0. Live postcode lookup by postcodes.io.
-    </div>
+    </p>
   </footer>
 
 </div>

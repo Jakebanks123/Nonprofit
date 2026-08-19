@@ -16,3 +16,8 @@ Thumbs.db
 
 # Test artefacts
 *.png
+# ...but the logo assets are real, committed files, not artefacts.
+!assets/**/*.png
+
+# Local preview server config — points at a machine-specific path.
+.claude/launch.json

@@ -1,0 +1,189 @@
+/* ==========================================================================
+   Unlock Gov — stylesheet SOURCE.
+
+   THIS FILE IS THE ONE YOU EDIT. dist/style.css is generated from it.
+
+   After ANY change here, or to any class name in app.js or index.html:
+
+       npm run build
+
+   and commit dist/style.css in the SAME COMMIT as the source change.
+   If they land in separate commits there is a commit in history where the
+   site renders wrong, and git bisect will mislead you later.
+   ========================================================================== */
+
+/* The migration is complete: every component is written in utilities, the
+   legacy layer is gone, and Preflight is on. */
+@import "tailwindcss";
+
+/* ==========================================================================
+   DESIGN TOKENS
+   In Tailwind v4 the variable name IS the utility name: --color-brand-600
+   gives you bg-brand-600, text-brand-600, border-brand-600.
+   Every contrast ratio below is computed, not estimated.
+   ========================================================================== */
+@theme static {
+  /* Brand — deep teal */
+  --color-brand-50: #e4f0ef;   /* tint: badge + note backgrounds            */
+  --color-brand-600: #0f5c57;  /* white on it 7.81:1                        */
+  --color-brand-800: #0a403c;  /* on white 11.59:1 — links, headings        */
+
+  /* Neutrals — warm sand */
+  --color-canvas: #faf7f2;     /* page background                           */
+  --color-surface: #ffffff;    /* cards                                     */
+  --color-ink: #16211f;        /* 15.46:1 on canvas                         */
+  --color-muted: #5a6664;      /* 5.58:1 on canvas                          */
+
+  /* TWO border tokens, and the distinction matters:
+     --color-line is 1.33:1 and is for DECORATIVE dividers only.
+     --color-line-strong is 3.37:1 and is REQUIRED on anything a user
+     operates — inputs, selects, secondary buttons — to satisfy
+     WCAG 2.2 SC 1.4.11 Non-text Contrast. Never use --color-line there. */
+  --color-line: #e5dfd4;
+  --color-line-strong: #8a8d86;
+
+  /* Accent — warm ochre. NOTE: the old #b5680a was 4.24:1 on white and
+     failed AA for text. This one is 6.18:1 and is safe for text. */
+  --color-accent-50: #fbf0de;
+  --color-accent-600: #9c4a06;
+
+  /* Status */
+  --color-good-50: #e9f6ee;
+  --color-good-700: #1e6b3a;
+  --color-warn-50: #fdecec;
+  --color-warn-700: #8a2020;
+
+  /* System font stack — 0 KB, 0 requests, renders on first paint. Chosen
+     deliberately: this audience is often on a slow connection. */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+
+  /* Named --radius-field, NOT --radius-sm, which collides with a Tailwind
+     default and would silently redefine rounded-sm everywhere. */
+  --radius-card: 14px;
+  --radius-field: 8px;
+
+  --shadow-card: 0 2px 10px rgb(18 40 40 / 0.06);
+
+  /* Match the single existing breakpoint exactly (520px). Note: rem inside a
+     media query always resolves against the browser's initial 16px, never
+     against the root font-size — so breakpoints do not scale, even though
+     rem-based spacing does. */
+  --breakpoint-sm: 32.5rem;
+}
+
+/* ==========================================================================
+   BASE — element-level defaults. Kept deliberately small.
+   ========================================================================== */
+@layer base {
+  :root {
+    /* Opt out of Chrome on Android's algorithmic auto-dark, which is on by
+       default on a lot of cheap and older handsets and would invert this
+       palette unpredictably. Remove this line when a real dark theme exists. */
+    color-scheme: light;
+  }
+
+  *, ::before, ::after { box-sizing: border-box; }
+
+  html {
+    /* 1.0625rem computes to the same 17px as before, but unlike a hardcoded
+       pixel value it still scales with the reader's own browser font-size
+       setting — which matters for anyone who raised it because they cannot
+       read small text. */
+    font-size: 1.0625rem;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--color-brand-800); }
+
+  /* The previous focus style was `outline: none` plus a translucent
+     box-shadow. That ring composited to 1.72:1 against white, which fails
+     WCAG 2.2 SC 1.4.11 — and forced-colors mode discards box-shadow while
+     honouring outline, so Windows High Contrast users had no visible focus
+     anywhere on the site. A real outline fixes both at once.
+
+     Declared once here rather than per component: a control that silently
+     misses its focus ring is exactly the kind of thing nobody notices. */
+  :focus-visible {
+    outline: 3px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
+
+  /* Text controls take the ring flush to the edge so an offset ring is not
+     clipped by a neighbouring field. */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline-offset: 0;
+  }
+
+  @media (forced-colors: active) {
+    :focus-visible { outline: 3px solid CanvasText; }
+  }
+
+  /* The one deliberate exception. The step heading is focused by script on
+     every step change so the new screen gets announced; a ring there marks
+     something the user did not click. verify-keyboard.js asserts this. */
+  h1[tabindex="-1"]:focus,
+  h1[tabindex="-1"]:focus-visible {
+    outline: none;
+  }
+
+  button:not(:disabled) { cursor: pointer; }
+
+  /* Someone using this is likely to be asked to bring their figures to a
+     council appointment or a Citizens Advice session. There is no
+     persistence anywhere in this app — refresh and it is gone — so being
+     able to print or save the results is the only way to take them away. */
+  @media print {
+    /* The reader is holding paper; controls they cannot press are noise.
+       The disclosure is deliberately NOT hidden — a printed page is exactly
+       where the caveats need to be, so app.js opens it before printing. */
+    #progressTrack,
+    button {
+      display: none !important;
+    }
+    summary {
+      list-style: none;
+      font-weight: 600;
+    }
+    body {
+      background: #fff;
+      color: #000;
+    }
+    main {
+      border: 0 !important;
+      box-shadow: none !important;
+      padding: 0 !important;
+    }
+    li {
+      break-inside: avoid;
+    }
+    /* A printed link is useless unless it says where it goes. */
+    a[href^="http"]::after {
+      content: " (" attr(href) ")";
+      font-size: 0.8em;
+      word-break: break-all;
+    }
+  }
+
+  /* Nothing animates yet, but this needs to exist before the first
+     transition is written, not after. */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

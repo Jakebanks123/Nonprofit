@@ -58,6 +58,62 @@ ALL_ENGLAND_COUNCILS.forEach(name => { ENGLAND_COUNCIL_LOOKUP_BY_LOWER[name.toLo
    Given a real ONS council name, returns our internal pilot council id if
    it's one of the 12 we have local scheme data for, or "other" plus the
    real name otherwise. */
+/* People do not type the ONS district string. They type "Leeds City Council",
+   or "leeds council", or just "Hull" — and the exact-match lookup rejected all
+   three, leaving step 1 permanently unpassable with only "Keep typing" for
+   feedback. This normalises the common ways a council gets written, then
+   falls back to a unique prefix or substring match.
+
+   Returns the canonical ONS name, or null when the input is genuinely
+   ambiguous — an ambiguous guess would be worse than none. */
+const COUNCIL_NAME_NOISE = /\b(metropolitan|london)?\s*\b(city|county|district|borough|royal|the)?\s*\b(council|borough|of)\b/gi;
+
+function normaliseCouncilName(raw) {
+  return (raw || "")
+    .toLowerCase()
+    .replace(/[.,'’]/g, "")
+    .replace(COUNCIL_NAME_NOISE, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function matchCouncilName(typed) {
+  const exact = ENGLAND_COUNCIL_LOOKUP_BY_LOWER[(typed || "").trim().toLowerCase()];
+  if (exact) return exact;
+
+  const needle = normaliseCouncilName(typed);
+  if (needle.length < 3) return null;
+
+  const names = (typeof ALL_ENGLAND_COUNCILS !== "undefined" && ALL_ENGLAND_COUNCILS) || [];
+
+  /* Normalised equality first: "leeds city council" -> "leeds". */
+  let hits = names.filter(n => normaliseCouncilName(n) === needle);
+  if (hits.length === 1) return hits[0];
+
+  /* Then a unique prefix: "kingston upon hull" -> "Kingston upon Hull, City of". */
+  hits = names.filter(n => normaliseCouncilName(n).startsWith(needle));
+  if (hits.length === 1) return hits[0];
+
+  /* Then a unique word-boundary substring: "hull" -> the same. Deliberately
+     last, and deliberately only when it identifies exactly one council. */
+  hits = names.filter(n => new RegExp("\\b" + needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(normaliseCouncilName(n)));
+  if (hits.length === 1) return hits[0];
+
+  return null;
+}
+
+/* When the typed text identifies more than one council — "Newcastle" is two
+   real places — refusing to guess is right, but saying nothing leaves the
+   person stuck. This returns the candidates so the UI can name them. */
+function councilSuggestions(typed, limit) {
+  const needle = normaliseCouncilName(typed);
+  if (needle.length < 3) return [];
+  const names = (typeof ALL_ENGLAND_COUNCILS !== "undefined" && ALL_ENGLAND_COUNCILS) || [];
+  const safe = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("\\b" + safe);
+  return names.filter(n => re.test(normaliseCouncilName(n))).slice(0, limit || 4);
+}
+
 function resolveCouncilByName(realName) {
   if (!realName) return null;
   const pilotId = ADMIN_DISTRICT_TO_COUNCIL[realName.toLowerCase()];
@@ -143,7 +199,10 @@ function matchOfflineCouncil(rawPostcode) {
 
 /* Exported for the Node test suite; ignored in the browser. */
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { COUNCILS, ADMIN_DISTRICT_TO_COUNCIL, ALL_ENGLAND_COUNCILS,
+  module.exports = {
+  matchCouncilName,
+  normaliseCouncilName,
+  councilSuggestions, COUNCILS, ADMIN_DISTRICT_TO_COUNCIL, ALL_ENGLAND_COUNCILS,
     ENGLAND_COUNCIL_LOOKUP_BY_LOWER, ENGLAND_POSTCODE_DATA,
     parsePostcodeParts, matchOfflineCouncil, resolveCouncilByName, lookupCouncilByPostcode };
 }

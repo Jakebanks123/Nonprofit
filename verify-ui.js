@@ -107,13 +107,17 @@ async function fillFlow(page, o) {
   const rBefore = await fillFlow(page, { council: 'Leeds', income: 400, housing: 600 });
   const before = rBefore.summary.match(/£[\d,]+/)[0];
   await page.click('#restartBtn');
+  // "Start over" is now "Change my answers" and deliberately KEEPS the answers:
+  // the results screen has no Back button, so wiping all four steps to correct
+  // one number was hostile. Assert they survive rather than that they are gone.
   const restartedField = await page.$eval('#councilSearch', el => el.value);
-  console.log(`\nStart over -> councilSearch cleared: ${JSON.stringify(restartedField)} (want "")`);
-  if (restartedField !== '') problems.push('Start over did not clear council field');
+  console.log(`\nChange my answers -> councilSearch kept: ${JSON.stringify(restartedField)} (want "Leeds")`);
+  if (restartedField === '') problems.push('Change my answers wiped the council field; it should preserve answers');
 
   const rAfter = await fillFlow(page, { council: 'Manchester', income: 400, housing: 600 });
   const after = rAfter.summary.match(/£[\d,]+/)[0];
-  const headings = await page.$$eval('.section-heading', els => els.map(e => e.textContent.trim()));
+  // Section headings are real <h2> elements now, not styled divs.
+  const headings = await page.$$eval('main h2', els => els.map(e => e.textContent.trim()));
   const localHeading = headings[headings.length - 1] || '';
   console.log(`Re-ran with Manchester: ${before} -> ${after}, local section = ${localHeading}`);
   if (!localHeading.includes('Manchester')) problems.push('Changing council did not update local section heading');
@@ -222,7 +226,10 @@ async function fillFlow(page, o) {
   console.log('\n===== E. LINK INTEGRITY =====\n');
   await page.setViewportSize({ width: 1000, height: 900 });
   await fillFlow(page, { income: 400, housing: 600 });
-  const links = await page.$$eval('.scheme-meta a', els => els.map(e => ({ href: e.href, text: e.textContent.trim() })));
+  // The per-scheme call to action moved out of .scheme-meta and became a real
+  // button-styled link inside each result <li>. Selecting on the old class
+  // would silently match nothing and report "0 links" as a pass.
+  const links = await page.$$eval('main li a[href^="http"]', els => els.map(e => ({ href: e.href, text: e.textContent.trim() })));
   const badLinks = links.filter(l => !/^https:\/\//.test(l.href));
   console.log(`${links.length} scheme links on results page; malformed: ${badLinks.length}`);
   links.forEach(l => console.log('   ' + l.href));

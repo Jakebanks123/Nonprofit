@@ -1,11 +1,17 @@
 {
-  "name": "benefit-finder",
+  "name": "unlock-gov",
   "version": "0.1.0",
-  "description": "Find the UK and local council support you may be entitled to",
+  "description": "Check what UK benefits and local council support you may be able to get",
   "private": true,
   "scripts": {
+    "build": "tailwindcss -i src/input.css -o dist/style.css --minify",
+    "watch": "tailwindcss -i src/input.css -o dist/style.css --watch",
     "test": "node verify-maths.cjs && node verify-edgecases.cjs",
     "test:maths": "node verify-maths.cjs",
     "test:edgecases": "node verify-edgecases.cjs"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "4.3.3",
+    "tailwindcss": "4.3.3"
   }
 }
