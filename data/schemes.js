@@ -32,6 +32,8 @@ function gbp(n) {
 const NATIONAL_SCHEMES = [
   {
     id: "universal-credit",
+    /* Money paid to you. */
+    kind: "cash",
     name: "Universal Credit",
     url: "https://www.gov.uk/universal-credit",
     category: "national",
@@ -90,6 +92,8 @@ const NATIONAL_SCHEMES = [
   },
   {
     id: "pension-credit",
+    /* Money paid to you. */
+    kind: "cash",
     name: "Pension Credit",
     url: "https://www.gov.uk/pension-credit",
     category: "national",
@@ -121,6 +125,8 @@ const NATIONAL_SCHEMES = [
   },
   {
     id: "child-benefit",
+    /* Money paid to you. */
+    kind: "cash",
     name: "Child Benefit",
     url: "https://www.gov.uk/child-benefit",
     category: "national",
@@ -169,6 +175,8 @@ const NATIONAL_SCHEMES = [
   },
   {
     id: "healthy-start",
+    /* A prepaid card for food and milk, not money paid to you. */
+    kind: "in-kind",
     name: "Healthy Start",
     url: "https://www.healthystart.nhs.uk/",
     category: "national",
@@ -186,6 +194,8 @@ const NATIONAL_SCHEMES = [
   },
   {
     id: "warm-home-discount",
+    /* A credit on your electricity bill, not money paid to you. */
+    kind: "bill",
     name: "Warm Home Discount",
     url: "https://www.gov.uk/the-warm-home-discount-scheme",
     category: "national",
@@ -205,6 +215,8 @@ const NATIONAL_SCHEMES = [
   },
   {
     id: "council-tax-support",
+    /* A reduction on a bill you already have, not money paid to you. */
+    kind: "bill",
     name: "Council Tax Support (Reduction)",
     url: "https://www.gov.uk/apply-council-tax-reduction",
     category: "national",

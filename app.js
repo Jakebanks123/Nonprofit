@@ -361,96 +361,268 @@ function computeResults() {
   return { nationalResults, localResults };
 }
 
+/* The old version added every scheme's monthly value into one pot and
+   multiplied by 12. That pot mixed things that are not the same kind of
+   thing: Council Tax Support is a reduction on a bill, Healthy Start is a
+   prepaid card for food, and only the rest is money that arrives in a bank
+   account. Presenting the sum as one annual cash figure overstates what
+   someone actually receives, which is exactly what the copycat sites do.
+
+   Cash is now totalled on its own, and bill reductions and in-kind help are
+   named separately rather than folded into the number. Local schemes are
+   excluded entirely — their amounts are placeholders (see renderLocalSection)
+   so they must not reach a headline figure. */
 function sumEstimates(results) {
-  let monthlyOngoing = 0;
-  let oneOff = 0;
-  results.forEach(({ result }) => {
-    if (!result.amount) return;
-    if (result.amount.period === "month") monthlyOngoing += result.amount.value;
-    if (result.amount.period === "year") monthlyOngoing += result.amount.value / 12;
-    if (result.amount.period === "one-off") oneOff += result.amount.value;
+  let cashMonthly = 0;
+  let oneOffCash = 0;
+  const billHelp = [];
+  const inKind = [];
+
+  results.forEach(({ scheme, result }) => {
+    const kind = scheme.kind || "cash";
+    const amount = result.amount;
+
+    if (kind === "bill") { billHelp.push(scheme.name); return; }
+    if (kind === "in-kind") { inKind.push(scheme.name); return; }
+
+    if (!amount || !amount.value) return;
+    if (amount.period === "month") cashMonthly += amount.value;
+    else if (amount.period === "year") cashMonthly += amount.value / 12;
+    else if (amount.period === "one-off") oneOffCash += amount.value;
   });
-  return { annualOngoing: monthlyOngoing * 12, oneOff };
+
+  return { cashMonthly, cashAnnual: cashMonthly * 12, oneOffCash, billHelp, inKind };
+}
+
+/* A figure rounded to the nearest pound reads as a calculation someone has
+   already done for you. Rounding it visibly is part of saying "estimate". */
+function roundTo(value, step) {
+  return Math.round(value / step) * step;
+}
+
+function annualValue(result) {
+  const a = result.amount;
+  if (!a || !a.value) return 0;
+  if (a.period === "month") return a.value * 12;
+  return a.value;
 }
 
 function formatAmount(amount) {
   if (!amount) return "";
   if (amount.display) return amount.display;
-  if (amount.value === 0) return "";
-  if (amount.period === "month") return gbp(amount.value) + " / month";
-  if (amount.period === "year") return gbp(amount.value) + " / year";
+  if (!amount.value) return "";
+  if (amount.period === "month") return gbp(amount.value) + " a month";
+  if (amount.period === "year") return gbp(amount.value) + " a year";
   if (amount.period === "one-off") return gbp(amount.value) + " one-off";
   return "";
 }
 
-function renderSchemeCard({ scheme, result }) {
-  const amountText = formatAmount(result.amount);
-  const verifiedLine = scheme.lastVerified
-    ? `<span>${scheme.lastVerified}</span>`
-    : `<span>Source: GOV.UK</span>`;
+/* Reads the domain out of the scheme's own URL so the button can name where
+   it is sending someone. Telling people the destination before they tap is a
+   trust signal; "Learn more" is not. */
+function linkHost(url) {
+  try { return new URL(url).hostname.replace(/^www\./, ""); }
+  catch (e) { return "the official site"; }
+}
+
+/* "Worth checking" was covering two unrelated situations: we trust the rule
+   but not your exact figures, and a human at the council decides. Those imply
+   different actions, so they get different words. */
+const BADGE = {
+  likely: {
+    cls: "inline-block rounded-full border border-good-700/25 bg-good-50 px-2.5 py-0.5 text-base text-good-700 sm:text-sm",
+    text: "You probably qualify"
+  },
+  possible: {
+    cls: "inline-block rounded-full border border-accent-600/25 bg-accent-50 px-2.5 py-0.5 text-base text-accent-600 sm:text-sm",
+    text: "You might qualify — it depends on your exact figures"
+  },
+  discretionary: {
+    cls: "inline-block rounded-full border border-accent-600/25 bg-accent-50 px-2.5 py-0.5 text-base text-accent-600 sm:text-sm",
+    text: "You have to apply and be assessed — your council decides"
+  }
+};
+
+/* A bill reduction and a food card still have a pound figure, so the card
+   has to say what kind of pound figure it is. Without this the summary says
+   "not cash" while the card underneath shows "£105 a month" like the rest. */
+const KIND_NOTE = {
+  bill: "This lowers a bill you already have. It is not money paid to you.",
+  "in-kind": "This comes as a card to spend on food and milk, not money paid to you."
+};
+
+function badgeKey({ scheme, result }) {
+  if (result.confidence === "likely") return "likely";
+  return scheme.category === "local" ? "discretionary" : "possible";
+}
+
+/* showAmount is false for council schemes: the figures in the data are
+   placeholders, so the section says so once instead of printing a number we
+   cannot stand behind. */
+function renderSchemeCard({ scheme, result }, showAmount) {
+  const badge = BADGE[badgeKey({ scheme, result })];
+  const amountText = showAmount ? formatAmount(result.amount) : "";
+  const host = linkHost(scheme.url);
+
   return `
-    <div class="scheme-card">
-      <div class="scheme-card-top">
-        <div>
-          <p class="scheme-name">${scheme.name}</p>
-          <span class="badge ${result.confidence === "likely" ? "badge-likely" : "badge-possible"}">
-            ${result.confidence === "likely" ? "Likely eligible" : "Worth checking"}
-          </span>
-        </div>
-        ${amountText ? `<div class="scheme-amount">${amountText}</div>` : ""}
+    <li class="rounded-field border border-line bg-surface p-4">
+      <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h3 class="scheme-name text-lg font-semibold tracking-tight text-ink">${scheme.name}</h3>
+        ${amountText ? `<p class="text-lg font-semibold tabular-nums whitespace-nowrap text-brand-800">${amountText}</p>` : ""}
       </div>
-      <p class="scheme-reason">${result.reason}${result.note ? " " + result.note : ""}</p>
-      <div class="scheme-meta">
-        ${verifiedLine}
-        <a href="${scheme.url}" target="_blank" rel="noopener">Learn more / apply →</a>
-      </div>
+      <p class="mt-2"><span class="${badge.cls}">${badge.text}</span></p>
+      ${KIND_NOTE[scheme.kind] ? `<p class="mt-2.5 text-base text-pretty font-medium text-ink">${KIND_NOTE[scheme.kind]}</p>` : ""}
+      <p class="mt-2.5 text-base text-pretty text-muted">${result.reason}${result.note ? " " + result.note : ""}</p>
+      <p class="mt-3.5">
+        <a class="block rounded-full border border-brand-600 bg-brand-600 px-4 py-2.5 text-center text-base font-medium text-white no-underline"
+           href="${scheme.url}" target="_blank" rel="noopener noreferrer">Check ${scheme.name} on ${host}<span class="sr-only"> (opens in a new tab)</span></a>
+      </p>
+    </li>
+  `;
+}
+
+const SECTION_HEADING = "mt-8 mb-3 text-xl font-semibold tracking-tight text-ink";
+const SECTION_NOTE = "mb-3 max-w-[56ch] text-base text-pretty text-muted";
+
+function renderGroup(heading, note, entries, showAmount) {
+  if (entries.length === 0) return "";
+  return `
+    <h2 class="${SECTION_HEADING}">${heading}</h2>
+    ${note ? `<p class="${SECTION_NOTE}">${note}</p>` : ""}
+    <ul role="list" class="flex flex-col gap-3">
+      ${entries.map(entry => renderSchemeCard(entry, showAmount)).join("")}
+    </ul>
+  `;
+}
+
+/* Nothing matched. The old code still rendered the summary panel, so this
+   person saw "£0" set in the largest, heaviest type on the page. That is the
+   worst moment this product can produce and it was entirely unhandled. */
+function renderNoResults() {
+  return `
+    <p class="${UI.eyebrow}">Your results</p>
+    <h1 class="${UI.title}" tabindex="-1" id="stepHeading">We didn't find anything from your answers</h1>
+    <p class="${UI.intro}">That does not mean there is no help for you. It means nothing matched the few questions we asked.</p>
+
+    <div class="results-summary rounded-field border border-line bg-canvas p-4">
+      <h2 class="text-lg font-semibold tracking-tight text-ink">The most common reason</h2>
+      <p class="mt-2 text-base text-pretty text-muted">People often enter a yearly income where we asked for a monthly one. It is worth checking that first.</p>
+    </div>
+
+    <h2 class="${SECTION_HEADING}">Where to get a proper check</h2>
+    <p class="${SECTION_NOTE}">These are free, and a real person can look at things we cannot.</p>
+    <ul role="list" class="flex flex-col gap-3">
+      <li class="rounded-field border border-line bg-surface p-4">
+        <h3 class="text-lg font-semibold tracking-tight text-ink">Citizens Advice</h3>
+        <p class="mt-2 text-base text-pretty text-muted">Free, independent and confidential advice on benefits, debt and housing.</p>
+        <p class="mt-3.5"><a class="block rounded-full border border-brand-600 bg-brand-600 px-4 py-2.5 text-center text-base font-medium text-white no-underline" href="https://www.citizensadvice.org.uk/benefits/" target="_blank" rel="noopener noreferrer">Go to citizensadvice.org.uk<span class="sr-only"> (opens in a new tab)</span></a></p>
+      </li>
+      <li class="rounded-field border border-line bg-surface p-4">
+        <h3 class="text-lg font-semibold tracking-tight text-ink">Your council</h3>
+        <p class="mt-2 text-base text-pretty text-muted">Councils run their own hardship and crisis schemes, and most have a welfare rights team.</p>
+        <p class="mt-3.5"><a class="block rounded-full border border-brand-600 bg-brand-600 px-4 py-2.5 text-center text-base font-medium text-white no-underline" href="https://www.gov.uk/find-local-council" target="_blank" rel="noopener noreferrer">Find your council on gov.uk<span class="sr-only"> (opens in a new tab)</span></a></p>
+      </li>
+    </ul>
+
+    ${renderResultsActions()}
+  `;
+}
+
+function renderResultsActions() {
+  return `
+    <div class="mt-8 flex flex-col gap-3 border-t border-line pt-5 sm:flex-row">
+      <button class="${UI.btnSecondary} w-full sm:w-auto" id="restartBtn" type="button">Change my answers</button>
+      <button class="${UI.btnSecondary} w-full sm:w-auto" id="printBtn" type="button">Print or save this page</button>
     </div>
   `;
 }
 
-function renderResultsStep() {
-  const { nationalResults, localResults } = computeResults();
-  const { annualOngoing, oneOff } = sumEstimates([...nationalResults, ...localResults]);
-  const councilName = COUNCILS.find(c => c.id === state.input.council)?.name || "your area";
-
-  let summaryHtml = `
-    <div class="results-summary">
-      <div class="summary-label">Estimated ongoing support, per year</div>
-      <div class="summary-figure">${gbp(annualOngoing)}</div>
-      ${oneOff > 0 ? `<div class="summary-sub">Plus roughly ${gbp(oneOff)} in one-off payments/grants</div>` : ""}
-      <div class="summary-sub">Based on ${nationalResults.length + localResults.length} scheme${nationalResults.length + localResults.length === 1 ? "" : "s"} you may be eligible for. These are rough estimates only — always confirm the real figure on the official page.</div>
-    </div>
-  `;
-
-  let nationalHtml = `<div class="section-heading">🇬🇧 Nationwide schemes</div>`;
-  if (nationalResults.length === 0) {
-    nationalHtml += `<div class="empty-note">No nationwide schemes matched based on what you told us. Double check your numbers, or your circumstances may simply be outside current thresholds.</div>`;
-  } else {
-    nationalHtml += nationalResults.map(renderSchemeCard).join("");
-  }
-
-  const localHeading = state.input.council === "other" && state.input.detectedDistrict
+function renderLocalSection(localResults) {
+  const councilName = COUNCILS.find(c => c.id === state.input.council)?.name || "your council";
+  const heading = state.input.council === "other" && state.input.detectedDistrict
     ? state.input.detectedDistrict
     : councilName;
-  let localHtml = `<div class="section-heading">📍 Local schemes — ${localHeading}</div>`;
+
   if (state.input.council === "other") {
-    localHtml += `<div class="council-missing-note">We don't have local scheme data for ${state.input.detectedDistrict ? "<strong>" + state.input.detectedDistrict + "</strong>" : "your council"} in this demo yet — it currently covers 12 pilot councils as a proof of concept. In a full version, this is where council-specific grants and discounts would appear.</div>`;
-  } else if (localResults.length === 0) {
-    localHtml += `<div class="empty-note">No local schemes matched for ${councilName} based on what you told us.</div>`;
-  } else {
-    localHtml += localResults.map(renderSchemeCard).join("");
+    const named = state.input.detectedDistrict ? `<strong>${state.input.detectedDistrict}</strong>` : "your council";
+    return `
+      <h2 class="${SECTION_HEADING}">From your council — ${heading}</h2>
+      <div class="rounded-field border border-line bg-canvas p-4">
+        <p class="text-base text-pretty text-muted">We do not have ${named}'s own schemes yet. We only cover 12 councils so far. ${named} may still offer help, so it is worth checking their website. Everything above still applies to you.</p>
+        <p class="mt-3.5"><a class="block rounded-full border border-brand-600 bg-brand-600 px-4 py-2.5 text-center text-base font-medium text-white no-underline" href="https://www.gov.uk/find-local-council" target="_blank" rel="noopener noreferrer">Find your council on gov.uk<span class="sr-only"> (opens in a new tab)</span></a></p>
+      </div>
+    `;
   }
 
-  return `
-    <p class="step-eyebrow">Your results</p>
-    <h1 class="step-title" tabindex="-1" id="stepHeading">Here's what you may be entitled to</h1>
-    ${summaryHtml}
-    ${nationalHtml}
-    ${localHtml}
-    <div class="restart-row">
-      <button class="btn-secondary" id="restartBtn" type="button">Start over</button>
+  if (localResults.length === 0) {
+    return `
+      <h2 class="${SECTION_HEADING}">From your council — ${heading}</h2>
+      <p class="${SECTION_NOTE}">Nothing from ${heading} matched your answers. They may still be able to help, so it is worth asking them directly.</p>
+    `;
+  }
+
+  /* One honest sentence for the whole section, rather than the same
+     "example data — verify with council" caveat repeated on all 18 cards
+     in the slot where the national ones claimed a source. */
+  return renderGroup(
+    `From your council — ${heading}`,
+    "We list the schemes we know your council runs. We do not show amounts, because each council sets its own and they change.",
+    localResults,
+    false
+  );
+}
+
+function renderResultsStep() {
+  const { nationalResults, localResults } = computeResults();
+
+  if (nationalResults.length === 0 && localResults.length === 0) return renderNoResults();
+
+  const byValue = (a, b) => annualValue(b.result) - annualValue(a.result);
+  const hasAmount = entry => annualValue(entry.result) > 0;
+
+  /* Grouped by what to do about it, not by who administers it. Within each
+     group, the largest amount first — someone in crisis reads two cards. */
+  const claimFirst = nationalResults.filter(r => r.result.confidence === "likely" && hasAmount(r)).sort(byValue);
+  const alsoCheck = nationalResults.filter(r => r.result.confidence !== "likely" && hasAmount(r)).sort(byValue);
+  const notMoney = nationalResults.filter(r => !hasAmount(r));
+
+  const { cashMonthly, cashAnnual, oneOffCash, billHelp, inKind } = sumEstimates(nationalResults);
+
+  /* Named as they are, not folded into a phrase — "help with your council tax
+     support (reduction)" is not a sentence anyone would say. */
+  const extras = billHelp.concat(inKind);
+
+  const summaryHtml = cashMonthly > 0 ? `
+    <div class="results-summary rounded-field border border-line bg-canvas p-5">
+      <p class="text-base text-muted">You may be able to get</p>
+      <p class="mt-1 text-4xl font-semibold tracking-tight tabular-nums text-brand-800">about ${gbp(roundTo(cashMonthly, 5))} a month</p>
+      <p class="mt-1 text-base text-muted tabular-nums">in cash support — roughly ${gbp(roundTo(cashAnnual, 10))} a year</p>
+      ${oneOffCash > 0 ? `<p class="mt-3 text-base text-pretty text-ink tabular-nums">Plus about ${gbp(roundTo(oneOffCash, 5))} in one-off payments.</p>` : ""}
+      ${extras.length ? `<p class="mt-3 text-base text-pretty text-ink">You may also be able to get ${listToSentence(extras)}, listed below. ${extras.length === 1 ? "It lowers a bill or comes as a card rather than being paid to you, so it is" : "They lower a bill or come as a card rather than being paid to you, so they are"} not counted in the figure above.</p>` : ""}
+      <p class="mt-3 text-base text-pretty text-muted">These are estimates based on a few questions. Check each one before you rely on it.</p>
+    </div>
+  ` : `
+    <div class="results-summary rounded-field border border-line bg-canvas p-5">
+      <p class="text-base text-pretty text-ink">We did not find any regular cash support from your answers, but the help below still applies to you.</p>
     </div>
   `;
+
+  return `
+    <p class="${UI.eyebrow}">Your results</p>
+    <h1 class="${UI.title}" tabindex="-1" id="stepHeading">What you may be able to get</h1>
+    ${summaryHtml}
+    ${renderGroup("Claim these first", "You look likely to qualify for these, and they are worth the most.", claimFirst, true)}
+    ${renderGroup("Also worth checking", "Less certain, but still worth a look.", alsoCheck, true)}
+    ${renderGroup("Not money, but worth having", "", notMoney, true)}
+    ${renderLocalSection(localResults)}
+    ${renderResultsActions()}
+  `;
+}
+
+function listToSentence(items) {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0];
+  return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
 }
 
 /* ---------- MAIN RENDER + EVENT WIRING ---------- */
@@ -496,17 +668,12 @@ function render() {
     document.getElementById("backBtn").addEventListener("click", back);
     document.getElementById("nextBtn").addEventListener("click", next);
   } else {
-    document.getElementById("restartBtn").addEventListener("click", () => {
-      state.step = 0;
-      state.input = {
-        postcode: "", council: "", detectedDistrict: "", age: null, adults: 1, children: 0,
-        employment: "employed", monthlyIncome: null, highestIndividualIncome: null,
-        savings: 0, housingCosts: 0,
-        receivingUC: false, receivingPensionCredit: false, limitedCapabilityForWork: false,
-        hasDisabilityOrHealthCondition: false, pregnantOrChildUnder4: false
-      };
-      render();
-    });
+    /* Was "Start over", which wiped all four steps with no confirmation — and
+       the results screen has no Back button, so correcting one number meant
+       redoing everything. state.input already survives back(), so going to
+       step 1 without resetting is both simpler and what people actually want. */
+    document.getElementById("restartBtn").addEventListener("click", () => goTo(0));
+    document.getElementById("printBtn").addEventListener("click", () => window.print());
   }
 
   const heading = document.getElementById("stepHeading");
@@ -540,8 +707,8 @@ function wireStepInputs(stepName) {
         const resolution = resolveCouncilByName(canonical);
         applyResolution(resolution);
         searchStatusEl.innerHTML = resolution.isPilot
-          ? `✓ Selected: <strong>${COUNCILS.find(c => c.id === resolution.id)?.name}</strong>`
-          : `✓ Selected: <strong>${canonical}</strong> — this demo doesn't have local schemes for that council yet, but you can still continue and see nationwide schemes.`;
+          ? `<strong class="text-brand-800">Found:</strong> <strong>${COUNCILS.find(c => c.id === resolution.id)?.name}</strong>`
+          : `<strong class="text-brand-800">Found:</strong> <strong>${canonical}</strong> — this demo doesn't have local schemes for that council yet, but you can still continue and see nationwide schemes.`;
       } else {
         state.input.council = "";
         state.input.detectedDistrict = "";
@@ -570,7 +737,7 @@ function wireStepInputs(stepName) {
         const resolution = { id: result.councilId, isPilot: true, realName: result.districtName };
         applyResolution(resolution);
         const councilName = COUNCILS.find(c => c.id === result.councilId)?.name;
-        statusEl.innerHTML = `✓ You're in <strong>${result.districtName}</strong>, which is covered by <strong>${councilName}</strong>. Not right? Search for a different council below.`;
+        statusEl.innerHTML = `<strong class="text-brand-800">Found:</strong> You are in <strong>${result.districtName}</strong>, which is covered by <strong>${councilName}</strong>. Not right? Search for a different council below.`;
       } else if (result.status === "not_covered") {
         applyResolution({ id: "other", isPilot: false, realName: result.districtName });
         statusEl.innerHTML = `You're in <strong>${result.districtName}</strong> — this demo doesn't have local schemes for that council yet, but you can still continue and see nationwide schemes.`;
@@ -587,7 +754,7 @@ function wireStepInputs(stepName) {
           const reason = result.status === "not_found" ? "the live lookup couldn't parse that postcode, so this used our bundled ONS data instead" : "the live lookup service wasn't reachable, so this used our bundled ONS data instead";
           if (resolution.isPilot) {
             const councilName = COUNCILS.find(c => c.id === resolution.id)?.name;
-            statusEl.innerHTML = `✓ You're in <strong>${matchedName}</strong>, covered by <strong>${councilName}</strong> (${reason}). Not right? Search for a different council below.`;
+            statusEl.innerHTML = `<strong class="text-brand-800">Found:</strong> You are in <strong>${matchedName}</strong>, covered by <strong>${councilName}</strong> (${reason}). Not right? Search for a different council below.`;
           } else {
             statusEl.innerHTML = `You're in <strong>${matchedName}</strong> (${reason}) — this demo doesn't have local schemes for that council yet, but you can still continue and see nationwide schemes.`;
           }
