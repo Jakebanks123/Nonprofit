@@ -32,12 +32,21 @@ const state = {
 
 const STEPS = ["location", "household", "income", "circumstances", "results"];
 
+/* Tailwind finds class names by plain text search, so it can never see a class
+   assembled from pieces. Every state below is written out in full. */
+const PROGRESS_SEG = {
+  done: "h-1.5 flex-1 rounded-full bg-brand-600",
+  current: "h-1.5 flex-1 rounded-full bg-accent-600",
+  todo: "h-1.5 flex-1 rounded-full bg-line"
+};
+
 function renderProgress() {
   const track = document.getElementById("progressTrack");
   track.innerHTML = "";
   STEPS.slice(0, 4).forEach((_, i) => {
     const seg = document.createElement("div");
-    seg.className = "progress-seg" + (i < state.step ? " done" : i === state.step ? " current" : "");
+    const stateKey = i < state.step ? "done" : i === state.step ? "current" : "todo";
+    seg.className = PROGRESS_SEG[stateKey];
     track.appendChild(seg);
   });
 }

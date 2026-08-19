@@ -140,37 +140,6 @@
       box-shadow: var(--focus-ring);
     }
   
-    .app-shell {
-      max-width: 760px;
-      margin: 0 auto;
-      padding: 24px 20px 80px;
-    }
-  
-    .card {
-      background: var(--color-surface);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      border: 1px solid var(--color-border);
-      padding: 28px;
-    }
-  
-    .progress-track {
-      display: flex;
-      gap: 6px;
-      margin-bottom: 24px;
-    }
-  
-    .progress-seg {
-      flex: 1;
-      height: 6px;
-      border-radius: 4px;
-      background: var(--color-border);
-      transition: background 0.2s ease;
-    }
-  
-    .progress-seg.done { background: var(--color-primary); }
-    .progress-seg.current { background: var(--color-accent); }
-  
     .step-eyebrow {
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -427,18 +396,6 @@
       margin: 16px 0;
     }
   
-    footer.disclaimer {
-      margin-top: 32px;
-      font-size: 0.8rem;
-      color: var(--color-muted);
-      border-top: 1px solid var(--color-border);
-      padding-top: 16px;
-    }
-  
-    footer.disclaimer .attribution {
-      margin-top: 8px;
-    }
-  
     .restart-row {
       text-align: center;
       margin-top: 24px;
@@ -462,12 +419,4 @@
       outline: none;
     }
   
-    .visually-hidden {
-      position: absolute;
-      width: 1px;
-      height: 1px;
-      overflow: hidden;
-      clip: rect(0 0 0 0);
-      white-space: nowrap;
-    }
 }
