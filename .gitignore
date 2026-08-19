@@ -16,3 +16,6 @@ Thumbs.db
 
 # Test artefacts
 *.png
+
+# Local preview server config — points at a machine-specific path.
+.claude/launch.json
