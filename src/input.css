@@ -90,6 +90,74 @@
        palette unpredictably. Remove this line when a real dark theme exists. */
     color-scheme: light;
   }
+
+  *, ::before, ::after { box-sizing: border-box; }
+
+  html {
+    /* 1.0625rem computes to the same 17px as before, but unlike a hardcoded
+       pixel value it still scales with the reader's own browser font-size
+       setting — which matters for anyone who raised it because they cannot
+       read small text. */
+    font-size: 1.0625rem;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--color-brand-800); }
+
+  /* The previous focus style was `outline: none` plus a translucent
+     box-shadow. That ring composited to 1.72:1 against white, which fails
+     WCAG 2.2 SC 1.4.11 — and forced-colors mode discards box-shadow while
+     honouring outline, so Windows High Contrast users had no visible focus
+     anywhere on the site. A real outline fixes both at once.
+
+     Declared once here rather than per component: a control that silently
+     misses its focus ring is exactly the kind of thing nobody notices. */
+  :focus-visible {
+    outline: 3px solid var(--color-brand-600);
+    outline-offset: 2px;
+  }
+
+  /* Text controls take the ring flush to the edge so an offset ring is not
+     clipped by a neighbouring field. */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline-offset: 0;
+  }
+
+  @media (forced-colors: active) {
+    :focus-visible { outline: 3px solid CanvasText; }
+  }
+
+  /* The one deliberate exception. The step heading is focused by script on
+     every step change so the new screen gets announced; a ring there marks
+     something the user did not click. verify-keyboard.js asserts this. */
+  h1[tabindex="-1"]:focus,
+  h1[tabindex="-1"]:focus-visible {
+    outline: none;
+  }
+
+  button:not(:disabled) { cursor: pointer; }
+
+  /* Nothing animates yet, but this needs to exist before the first
+     transition is written, not after. */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
 }
 
 /* ==========================================================================
@@ -122,24 +190,6 @@
       --focus-ring: 0 0 0 3px rgba(27, 107, 107, 0.35);
     }
   
-    * { box-sizing: border-box; }
-  
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: var(--color-bg);
-      color: var(--color-text);
-      font-family: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
-      font-size: 17px;
-      line-height: 1.5;
-    }
-  
-    a { color: var(--color-primary-dark); }
-    a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
-      outline: none;
-      box-shadow: var(--focus-ring);
-    }
-  
     .step-eyebrow {
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -158,120 +208,6 @@
       color: var(--color-muted);
       margin: 0 0 24px;
       font-size: 0.95rem;
-    }
-  
-    .field-group {
-      margin-bottom: 20px;
-    }
-  
-    .field-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-  
-    @media (max-width: 520px) {
-      .field-row { grid-template-columns: 1fr; }
-    }
-  
-    label {
-      display: block;
-      font-weight: 600;
-      font-size: 0.92rem;
-      margin-bottom: 6px;
-    }
-  
-    .field-hint {
-      font-weight: 400;
-      color: var(--color-muted);
-      font-size: 0.82rem;
-      display: block;
-      margin-top: 4px;
-    }
-  
-    input[type="text"],
-    input[type="number"],
-    select {
-      width: 100%;
-      padding: 11px 12px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--color-border);
-      background: var(--color-surface);
-      font-size: 1rem;
-      color: var(--color-text);
-      font-family: inherit;
-    }
-  
-    .checkbox-list {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-  
-    .checkbox-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      background: var(--color-primary-light);
-      border-radius: var(--radius-sm);
-      padding: 12px 14px;
-    }
-  
-    .checkbox-item input {
-      margin-top: 3px;
-      width: 18px;
-      height: 18px;
-      flex-shrink: 0;
-    }
-  
-    .checkbox-item label {
-      font-weight: 500;
-      margin: 0;
-      font-size: 0.92rem;
-    }
-  
-    .nav-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: 28px;
-    }
-  
-    button {
-      font-family: inherit;
-      font-size: 0.95rem;
-      font-weight: 600;
-      border-radius: 999px;
-      padding: 12px 22px;
-      border: none;
-      cursor: pointer;
-    }
-  
-    .btn-primary {
-      background: var(--color-primary);
-      color: white;
-    }
-    .btn-primary:hover { background: var(--color-primary-dark); }
-  
-    .btn-secondary {
-      background: transparent;
-      color: var(--color-primary-dark);
-      border: 1px solid var(--color-border);
-    }
-    .btn-secondary:hover { background: var(--color-primary-light); }
-  
-    .btn-secondary:disabled {
-      opacity: 0.4;
-      cursor: default;
-    }
-  
-    .privacy-note {
-      display: flex;
-      gap: 8px;
-      align-items: flex-start;
-      color: var(--color-muted);
-      font-size: 0.82rem;
-      margin-top: 18px;
     }
   
     /* Results screen */
@@ -399,17 +335,6 @@
     .restart-row {
       text-align: center;
       margin-top: 24px;
-    }
-  
-    .step-error {
-      background: #fdecec;
-      border: 1px solid #e6b3b3;
-      color: #8a2020;
-      border-radius: var(--radius-sm);
-      padding: 12px 14px;
-      margin-top: 20px;
-      font-size: 0.9rem;
-      font-weight: 500;
     }
   
     /* Focus is moved here programmatically on every step change so screen

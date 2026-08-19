@@ -131,6 +131,38 @@ function validateStep(stepIndex) {
   return null;
 }
 
+/* ---------- SHARED UI CLASSES ---------- */
+
+/* Every class name is written out in full and picked from a lookup, never
+   assembled by joining strings. Tailwind finds classes by plain text search,
+   so a class it cannot see produces an unstyled element and no build error. */
+const UI = {
+  eyebrow: "mb-1.5 text-base font-medium text-brand-600 sm:text-sm",
+  title: "mb-2 max-w-[40ch] text-3xl font-semibold tracking-tight text-balance text-ink",
+  intro: "mb-6 max-w-[56ch] text-base text-pretty text-muted",
+  group: "mb-5",
+  row: "mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2",
+  label: "mb-1.5 block text-base font-medium text-ink",
+  hint: "mt-1.5 text-base text-pretty text-muted sm:text-sm",
+  status: "mt-2 text-base text-pretty text-muted sm:text-sm",
+  /* border-line-strong, not border-line: a control's boundary needs 3:1 to
+     satisfy WCAG 2.2 SC 1.4.11. The soft line is for dividers only. */
+  field: "block w-full rounded-field border border-line-strong bg-surface px-3 py-2.5 text-base text-ink placeholder:text-muted",
+  select: "col-span-full row-start-1 w-full appearance-none rounded-field border border-line-strong bg-surface px-3 py-2.5 pr-8 text-base text-ink",
+  /* Both buttons declare an explicit 1px border. Preflight is not loaded yet,
+     so a <button> otherwise keeps the browser's own 2px default border and the
+     two would not be the same height side by side. The primary's border
+     matches its background rather than being translucent. */
+  btnPrimary: "rounded-full border border-brand-600 bg-brand-600 px-4 py-2.5 text-base font-medium text-white disabled:opacity-50",
+  btnSecondary: "rounded-full border border-line-strong bg-surface px-4 py-2.5 text-base font-medium text-brand-800 disabled:opacity-50"
+};
+
+const SELECT_CHEVRON = `
+  <svg viewBox="0 0 8 5" width="8" height="5" fill="none"
+       class="pointer-events-none col-start-2 row-start-1 place-self-center stroke-muted" aria-hidden="true">
+    <path d="M.5.5 4 4 7.5.5"/>
+  </svg>`;
+
 /* ---------- STEP RENDERERS ---------- */
 
 function renderLocationStep() {
@@ -140,121 +172,151 @@ function renderLocationStep() {
     : "");
 
   return `
-    <p class="step-eyebrow">Step 1 of 4</p>
-    <h1 class="step-title" tabindex="-1" id="stepHeading">Where are you based?</h1>
-    <p class="step-intro">This helps us show local council schemes alongside UK-wide ones. Not sure which council you're in — especially common in big cities split into lots of boroughs? Just enter your postcode and we'll work it out.</p>
+    <p class="${UI.eyebrow}">Step 1 of 4</p>
+    <h1 class="${UI.title}" tabindex="-1" id="stepHeading">Where are you based?</h1>
+    <p class="${UI.intro}">We use this to show help from your local council, as well as UK-wide help. Not sure which council you are in? Enter your postcode and we will find it.</p>
 
-    <div class="field-group">
-      <label for="postcode">Your postcode</label>
-      <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <input type="text" id="postcode" value="${state.input.postcode}" placeholder="e.g. E14 5AA" style="flex:1; min-width:160px;">
-        <button class="btn-primary" id="lookupBtn" type="button">Find my council</button>
+    <div class="${UI.group}">
+      <label class="${UI.label}" for="postcode">Your postcode</label>
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-start">
+        <input type="text" id="postcode" name="postcode" class="${UI.field} sm:flex-1"
+               value="${state.input.postcode}" placeholder="e.g. E14 5AA"
+               autocomplete="postal-code" autocapitalize="characters" spellcheck="false"
+               aria-describedby="postcodeHint">
+        <button class="${UI.btnSecondary} w-full sm:w-auto" id="lookupBtn" type="button">Find my council</button>
       </div>
-      <span class="field-hint">Only the postcode itself is sent — to postcodes.io, a free, open UK postcode lookup service — to identify your council. Nothing else you enter in this app leaves your browser. If that service can't be reached (for example inside a sandboxed preview), we fall back to real ONS postcode data bundled into this app (England only, for now).</span>
-      <div id="lookupStatus" style="margin-top:10px; font-size:0.88rem;" aria-live="polite"></div>
+      <p class="${UI.hint}" id="postcodeHint">We send only your postcode, to a free public service, so we can find your council. Nothing else you type leaves your phone or computer. If that service is down, we use a copy of the official postcode list saved in this page. England only, for now.</p>
+      <div id="lookupStatus" class="${UI.status}" aria-live="polite"></div>
     </div>
 
-    <div class="field-group">
-      <label for="councilSearch">Or search for your council directly</label>
-      <input type="text" id="councilSearch" list="councilOptions" value="${currentSearchValue}" placeholder="Start typing a council name…" autocomplete="off">
+    <div class="${UI.group}">
+      <label class="${UI.label}" for="councilSearch">Or search for your council directly</label>
+      <input type="text" id="councilSearch" name="councilSearch" class="${UI.field}"
+             list="councilOptions" value="${currentSearchValue}"
+             placeholder="Start typing a council name…" autocomplete="off"
+             aria-describedby="councilSearchHint">
       <datalist id="councilOptions">${datalistOptions}</datalist>
-      <span class="field-hint">Covers all 296 English councils. Scotland, Wales and Northern Ireland aren't supported in this demo yet.</span>
-      <div id="councilSearchStatus" style="margin-top:8px; font-size:0.88rem;" aria-live="polite"></div>
+      <p class="${UI.hint}" id="councilSearchHint">Covers all 296 English councils. Scotland, Wales and Northern Ireland are not covered yet.</p>
+      <div id="councilSearchStatus" class="${UI.status}" aria-live="polite"></div>
     </div>
   `;
 }
 
 function renderHouseholdStep() {
   return `
-    <p class="step-eyebrow">Step 2 of 4</p>
-    <h1 class="step-title" tabindex="-1" id="stepHeading">Tell us about your household</h1>
-    <p class="step-intro">Just rough numbers are fine — this is an estimate, not an application.</p>
+    <p class="${UI.eyebrow}">Step 2 of 4</p>
+    <h1 class="${UI.title}" tabindex="-1" id="stepHeading">Tell us about your household</h1>
+    <p class="${UI.intro}">Rough numbers are fine. This is an estimate, not an application.</p>
 
-    <div class="field-row">
-      <div class="field-group">
-        <label for="age">Your age</label>
-        <input type="number" id="age" min="16" max="110" value="${state.input.age ?? ""}">
+    <div class="${UI.row}">
+      <div>
+        <label class="${UI.label}" for="age">Your age</label>
+        <input type="number" id="age" name="age" class="${UI.field}" inputmode="numeric"
+               min="16" max="120" value="${state.input.age ?? ""}">
       </div>
-      <div class="field-group">
-        <label for="adults">Adults in household <span class="field-hint">Including you</span></label>
-        <input type="number" id="adults" min="1" max="6" value="${state.input.adults}">
+      <div>
+        <label class="${UI.label}" for="adults">Adults in household</label>
+        <input type="number" id="adults" name="adults" class="${UI.field}" inputmode="numeric"
+               min="1" max="10" value="${state.input.adults}" aria-describedby="adultsHint">
+        <p class="${UI.hint}" id="adultsHint">Count yourself.</p>
       </div>
     </div>
 
-    <div class="field-group">
-      <label for="children">Children (under 16, or under 20 in full-time education)</label>
-      <input type="number" id="children" min="0" max="10" value="${state.input.children}">
+    <div class="${UI.group}">
+      <label class="${UI.label}" for="children">Children</label>
+      <input type="number" id="children" name="children" class="${UI.field}" inputmode="numeric"
+             min="0" max="15" value="${state.input.children}" aria-describedby="childrenHint">
+      <p class="${UI.hint}" id="childrenHint">Under 16, or under 20 and in full-time education.</p>
     </div>
   `;
 }
 
 function renderIncomeStep() {
-  return `
-    <p class="step-eyebrow">Step 3 of 4</p>
-    <h1 class="step-title" tabindex="-1" id="stepHeading">Income, savings & housing</h1>
-    <p class="step-intro">Nothing here is sent anywhere or saved — it only stays in your browser for this session.</p>
+  const opts = [
+    ["employed", "Employed (full or part-time)"],
+    ["self-employed", "Self-employed"],
+    ["unemployed", "Unemployed, or looking for work"],
+    ["retired", "Retired"],
+    ["unable", "Unable to work because of health or disability"]
+  ];
 
-    <div class="field-group">
-      <label for="employment">Employment status</label>
-      <select id="employment">
-        <option value="employed" ${state.input.employment === "employed" ? "selected" : ""}>Employed (full or part-time)</option>
-        <option value="self-employed" ${state.input.employment === "self-employed" ? "selected" : ""}>Self-employed</option>
-        <option value="unemployed" ${state.input.employment === "unemployed" ? "selected" : ""}>Unemployed / looking for work</option>
-        <option value="retired" ${state.input.employment === "retired" ? "selected" : ""}>Retired</option>
-        <option value="unable" ${state.input.employment === "unable" ? "selected" : ""}>Unable to work due to health/disability</option>
-      </select>
+  return `
+    <p class="${UI.eyebrow}">Step 3 of 4</p>
+    <h1 class="${UI.title}" tabindex="-1" id="stepHeading">Income, savings and housing</h1>
+    <p class="${UI.intro}">None of this is sent anywhere or saved. It stays in your browser for this visit only.</p>
+
+    <div class="${UI.group}">
+      <label class="${UI.label}" for="employment">Employment status</label>
+      <div class="grid w-full grid-cols-[1fr_--spacing(8)]">
+        <select id="employment" name="employment" class="${UI.select}">
+          ${opts.map(([v, text]) => `<option value="${v}" ${state.input.employment === v ? "selected" : ""}>${text}</option>`).join("")}
+        </select>
+        ${SELECT_CHEVRON}
+      </div>
     </div>
 
-    <div class="field-row">
-      <div class="field-group">
-        <label for="monthlyIncome">Household take-home income <span class="field-hint">Per month, after tax, £</span></label>
-        <input type="number" id="monthlyIncome" min="0" value="${state.input.monthlyIncome ?? ""}">
+    <div class="${UI.row}">
+      <div>
+        <label class="${UI.label}" for="monthlyIncome">Household take-home income</label>
+        <input type="number" id="monthlyIncome" name="monthlyIncome" class="${UI.field}" inputmode="numeric"
+               min="0" value="${state.input.monthlyIncome ?? ""}" aria-describedby="monthlyIncomeHint">
+        <p class="${UI.hint}" id="monthlyIncomeHint">Per month, after tax, in £.</p>
       </div>
-      <div class="field-group">
-        <label for="savings">Savings & investments <span class="field-hint">Total, £</span></label>
-        <input type="number" id="savings" min="0" value="${state.input.savings}">
+      <div>
+        <label class="${UI.label}" for="savings">Savings and investments</label>
+        <input type="number" id="savings" name="savings" class="${UI.field}" inputmode="numeric"
+               min="0" value="${state.input.savings}" aria-describedby="savingsHint">
+        <p class="${UI.hint}" id="savingsHint">Total, in £.</p>
       </div>
     </div>
 
     ${state.input.adults >= 2 ? `
-    <div class="field-group">
-      <label for="highestIndividualIncome">Highest single income in the household <span class="field-hint">Per month, after tax, £ — whichever one person earns the most</span></label>
-      <input type="number" id="highestIndividualIncome" min="0" value="${state.input.highestIndividualIncome ?? ""}">
-      <span class="field-hint">Asked separately because the Child Benefit tax charge is based on one person's income, not the household total — so two people earning £45,000 each are treated very differently from one person earning £90,000.</span>
+    <div class="${UI.group}">
+      <label class="${UI.label}" for="highestIndividualIncome">Highest single income in the household</label>
+      <input type="number" id="highestIndividualIncome" name="highestIndividualIncome" class="${UI.field}" inputmode="numeric"
+             min="0" value="${state.input.highestIndividualIncome ?? ""}" aria-describedby="highestIndividualIncomeHint">
+      <p class="${UI.hint}" id="highestIndividualIncomeHint">Per month, after tax, in £ — whichever one person earns the most. We ask because of a tax rule for Child Benefit. It looks at what one person earns, not what your whole home earns. So two people on £45,000 each are treated differently from one person on £90,000.</p>
     </div>` : ""}
 
-    <div class="field-group">
-      <label for="housingCosts">Rent or mortgage <span class="field-hint">Per month, £ — leave 0 if none</span></label>
-      <input type="number" id="housingCosts" min="0" value="${state.input.housingCosts}">
+    <div class="${UI.group}">
+      <label class="${UI.label}" for="housingCosts">Rent or mortgage</label>
+      <input type="number" id="housingCosts" name="housingCosts" class="${UI.field}" inputmode="numeric"
+             min="0" value="${state.input.housingCosts}" aria-describedby="housingCostsHint">
+      <p class="${UI.hint}" id="housingCostsHint">Per month, in £. Enter 0 if you pay none.</p>
     </div>
   `;
 }
 
 function renderCircumstancesStep() {
   const items = [
-    ["receivingUC", "Already receiving Universal Credit"],
-    ["receivingPensionCredit", "Already receiving Pension Credit"],
-    ["limitedCapabilityForWork", "A health condition or disability limits how much you can work, or you've been assessed as having limited capability for work"],
-    ["hasDisabilityOrHealthCondition", "You or someone in your household has a disability or long-term health condition"],
+    ["receivingUC", "You already get Universal Credit"],
+    ["receivingPensionCredit", "You already get Pension Credit"],
+    ["limitedCapabilityForWork", "A health condition or disability limits how much you can work, or you have been assessed as having limited capability for work"],
+    ["hasDisabilityOrHealthCondition", "You or someone in your home has a disability or a long-term health condition"],
     ["pregnantOrChildUnder4", "You are pregnant, or have a child under 4"]
   ];
 
   return `
-    <p class="step-eyebrow">Step 4 of 4</p>
-    <h1 class="step-title" tabindex="-1" id="stepHeading">A few more circumstances</h1>
-    <p class="step-intro">These help refine which schemes are likely to apply. Skip anything that doesn't apply.</p>
+    <p class="${UI.eyebrow}">Step 4 of 4</p>
+    <h1 class="${UI.title}" tabindex="-1" id="stepHeading">A few more circumstances</h1>
+    <p class="${UI.intro}">These help us narrow down which schemes apply to you. Skip anything that does not.</p>
 
-    <div class="checkbox-list">
+    <div class="flex flex-col gap-2.5">
       ${items.map(([key, label]) => `
-        <div class="checkbox-item">
-          <input type="checkbox" id="${key}" ${state.input[key] ? "checked" : ""}>
-          <label for="${key}">${label}</label>
-        </div>
+        <label class="flex cursor-pointer items-start gap-3 rounded-field border border-line bg-canvas p-3 has-checked:border-brand-600 has-checked:bg-brand-50" for="${key}">
+          <span class="flex h-lh shrink-0 items-center text-base">
+            <input type="checkbox" id="${key}" name="${key}" class="size-5 accent-brand-600 sm:size-4" ${state.input[key] ? "checked" : ""}>
+          </span>
+          <span class="text-base text-pretty text-ink">${label}</span>
+        </label>
       `).join("")}
     </div>
 
-    <div class="privacy-note">
-      🔒 <span>Your answers stay in this browser tab only. Closing or refreshing the page clears everything — nothing is stored or sent anywhere.</span>
+    <div class="mt-6 rounded-field border border-line bg-brand-50 p-4">
+      <p class="text-base text-pretty text-brand-800 sm:text-sm">
+        <span class="font-medium">Your answers stay in this browser tab.</span>
+        Closing or refreshing the page clears everything. Nothing is stored or sent anywhere.
+      </p>
     </div>
   `;
 }
@@ -405,15 +467,28 @@ function render() {
   else if (stepName === "circumstances") html = renderCircumstancesStep();
   else if (stepName === "results") html = renderResultsStep();
 
+  /* The error box is still shown and hidden with an inline style.display,
+     not a utility class. verify-ui.js asserts on style.display; switching to a
+     hidden class would make that assertion accidentally always true, so it
+     would stop catching the bug it exists to catch. */
   const navHtml = stepName === "results" ? "" : `
-    <div id="stepError" class="step-error" role="alert" style="display:none;"></div>
-    <div class="nav-row">
-      <button class="btn-secondary" id="backBtn" type="button" ${state.step === 0 ? "disabled" : ""}>← Back</button>
-      <button class="btn-primary" id="nextBtn" type="button">${stepName === "circumstances" ? "See my results →" : "Next →"}</button>
+    <div id="stepError" class="mt-5 rounded-field border border-warn-700/30 bg-warn-50 p-3 text-base font-medium text-warn-700" role="alert" style="display:none;"></div>
+    <div class="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <button class="${UI.btnSecondary} w-full sm:w-auto" id="backBtn" type="button" ${state.step === 0 ? "disabled" : ""}>Back</button>
+      <button class="${UI.btnPrimary} w-full sm:w-auto" id="nextBtn" type="button">${stepName === "circumstances" ? "See my results" : "Next"}</button>
     </div>
   `;
 
   container.innerHTML = html + navHtml;
+
+  /* Scrolling the page with the pointer over a focused number input silently
+     changes its value. On an income field that is data corruption the user
+     never sees, so take focus away instead. */
+  container.querySelectorAll('input[type="number"]').forEach(el => {
+    el.addEventListener("wheel", () => {
+      if (document.activeElement === el) el.blur();
+    }, { passive: true });
+  });
 
   wireStepInputs(stepName);
 
