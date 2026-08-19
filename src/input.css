@@ -81,6 +81,18 @@
 }
 
 /* ==========================================================================
+   BASE — element-level defaults. Kept deliberately small.
+   ========================================================================== */
+@layer base {
+  :root {
+    /* Opt out of Chrome on Android's algorithmic auto-dark, which is on by
+       default on a lot of cheap and older handsets and would invert this
+       palette unpredictably. Remove this line when a real dark theme exists. */
+    color-scheme: light;
+  }
+}
+
+/* ==========================================================================
    LEGACY — the previous hand-written stylesheet, ported verbatim.
    Rules are deleted from here as each component is rewritten in utilities.
    When this layer is empty, Preflight goes on and the layer is removed.
@@ -132,38 +144,6 @@
       max-width: 760px;
       margin: 0 auto;
       padding: 24px 20px 80px;
-    }
-  
-    header.site-header {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 20px;
-    }
-  
-    .logo-mark {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
-      background: var(--color-primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: white;
-      font-weight: 700;
-      font-size: 18px;
-      flex-shrink: 0;
-    }
-  
-    .site-title {
-      font-size: 1.05rem;
-      font-weight: 700;
-      color: var(--color-primary-dark);
-    }
-  
-    .site-subtitle {
-      font-size: 0.85rem;
-      color: var(--color-muted);
     }
   
     .demo-banner {
