@@ -63,6 +63,7 @@ function goTo(stepIndex) {
 function next() {
   const error = validateStep(state.step);
   if (error) {
+    clearStepError();
     showStepError(error);
     return;
   }
@@ -71,13 +72,30 @@ function next() {
   render();
 }
 
-function showStepError(message) {
+/* Announcement is deliberately single-channel. Previously this wrote to a
+   role="alert" box AND pushed the same string into the live region, so every
+   error was read out twice. Now focus moves to the offending field, whose
+   aria-describedby points at the error text — so it is announced exactly once,
+   by the same action that puts the cursor where the fix is needed.
+
+   The box is still shown and hidden with an inline style.display rather than a
+   utility class, because verify-ui.js asserts on style.display. */
+function showStepError(error) {
   const box = document.getElementById("stepError");
   if (box) {
-    box.textContent = message;
+    box.textContent = error.message;
     box.style.display = "block";
   }
-  announce(message);
+  const field = error.field && document.getElementById(error.field);
+  if (field) {
+    field.setAttribute("aria-invalid", "true");
+    const described = (field.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean);
+    if (!described.includes("stepError")) described.unshift("stepError");
+    field.setAttribute("aria-describedby", described.join(" "));
+    field.focus();
+  } else if (box) {
+    announce(error.message);
+  }
 }
 
 function clearStepError() {
@@ -86,6 +104,13 @@ function clearStepError() {
     box.textContent = "";
     box.style.display = "none";
   }
+  document.querySelectorAll('[aria-invalid="true"]').forEach(field => {
+    field.removeAttribute("aria-invalid");
+    const described = (field.getAttribute("aria-describedby") || "")
+      .split(/\s+/).filter(id => id && id !== "stepError");
+    if (described.length) field.setAttribute("aria-describedby", described.join(" "));
+    else field.removeAttribute("aria-describedby");
+  });
 }
 
 function back() {
@@ -96,35 +121,40 @@ function back() {
 /* Returns null when the step is valid, or a human-readable message naming
    what needs fixing. The message is shown inline AND announced to screen
    readers, so pressing Next never silently does nothing. */
+/* Returns null, or { field, message }. The field matters: an error box on its
+   own tells a screen-reader user something is wrong but not which of six
+   inputs to fix. Messages say what to do rather than stating a rule —
+   "A household needs at least 1 adult" is true and useless. */
 function validateStep(stepIndex) {
   const s = state.input;
   const stepName = STEPS[stepIndex];
   const finite = v => typeof v === "number" && Number.isFinite(v);
+  const err = (field, message) => ({ field, message });
 
   if (stepName === "location") {
-    if (!s.council) return "Please find your council using your postcode, or pick one from the council search box.";
+    if (!s.council) return err("councilSearch", "We need to know your council. Type your postcode and press \"Find my council\". Or type your council's name in the box below.");
     return null;
   }
   if (stepName === "household") {
-    if (!finite(s.age)) return "Please enter your age.";
-    if (s.age < 16 || s.age > 120) return "Please enter an age between 16 and 120.";
-    if (!finite(s.adults) || s.adults < 1) return "A household needs at least 1 adult.";
-    if (s.adults > 10) return "Please enter no more than 10 adults.";
-    if (!finite(s.children) || s.children < 0) return "Number of children can't be negative.";
-    if (s.children > 15) return "Please enter no more than 15 children.";
+    if (!finite(s.age)) return err("age", "Enter your age.");
+    if (s.age < 16 || s.age > 120) return err("age", "Enter an age between 16 and 120.");
+    if (!finite(s.adults) || s.adults < 1) return err("adults", "Enter 1 or more adults. Remember to count yourself.");
+    if (s.adults > 10) return err("adults", "Enter no more than 10 adults.");
+    if (!finite(s.children) || s.children < 0) return err("children", "Children must be 0 or more. Enter 0 if you have none.");
+    if (s.children > 15) return err("children", "Enter no more than 15 children.");
     return null;
   }
   if (stepName === "income") {
-    if (!finite(s.monthlyIncome)) return "Please enter your household income — enter 0 if you have none.";
-    if (s.monthlyIncome < 0) return "Income can't be negative. Enter 0 if you have no income.";
-    if (s.monthlyIncome > 100000) return "Please enter a monthly income under £100,000.";
-    if (!finite(s.savings) || s.savings < 0) return "Savings can't be negative. Enter 0 if you have none.";
-    if (s.savings > 10000000) return "Please enter savings under £10,000,000.";
-    if (!finite(s.housingCosts) || s.housingCosts < 0) return "Rent or mortgage can't be negative. Enter 0 if you have none.";
-    if (s.housingCosts > 10000) return "Please enter a monthly rent or mortgage under £10,000.";
+    if (!finite(s.monthlyIncome)) return err("monthlyIncome", "Enter how much money your home gets each month, after tax. Enter 0 if you get none.");
+    if (s.monthlyIncome < 0) return err("monthlyIncome", "Income cannot be less than 0. Enter 0 if you have none.");
+    if (s.monthlyIncome > 100000) return err("monthlyIncome", "Enter a monthly income under £100,000.");
+    if (!finite(s.savings) || s.savings < 0) return err("savings", "Savings cannot be less than 0. Enter 0 if you have none.");
+    if (s.savings > 10000000) return err("savings", "Enter savings under £10,000,000.");
+    if (!finite(s.housingCosts) || s.housingCosts < 0) return err("housingCosts", "Rent or mortgage cannot be less than 0. Enter 0 if you pay none.");
+    if (s.housingCosts > 10000) return err("housingCosts", "Enter a monthly rent or mortgage under £10,000.");
     if (s.adults >= 2 && s.highestIndividualIncome != null) {
-      if (s.highestIndividualIncome < 0) return "The highest single income can't be negative.";
-      if (s.highestIndividualIncome > s.monthlyIncome) return "The highest single income can't be more than your total household income.";
+      if (s.highestIndividualIncome < 0) return err("highestIndividualIncome", "The highest single income cannot be less than 0.");
+      if (s.highestIndividualIncome > s.monthlyIncome) return err("highestIndividualIncome", "One person cannot earn more than everyone in your home put together. Please check both numbers.");
     }
     return null;
   }
@@ -619,10 +649,10 @@ function renderResultsStep() {
   `;
 }
 
-function listToSentence(items) {
+function listToSentence(items, conjunction) {
   if (items.length === 0) return "";
   if (items.length === 1) return items[0];
-  return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
+  return items.slice(0, -1).join(", ") + " " + (conjunction || "and") + " " + items[items.length - 1];
 }
 
 /* ---------- MAIN RENDER + EVENT WIRING ---------- */
@@ -680,7 +710,9 @@ function render() {
   if (heading) {
     heading.focus();
   }
-  announce(heading ? heading.textContent : "");
+  /* No announce() here. Focusing the heading already makes a screen reader
+     read it; pushing the same string into the live region made every step
+     change get announced twice. */
 }
 
 function wireStepInputs(stepName) {
@@ -702,7 +734,7 @@ function wireStepInputs(stepName) {
 
     searchInput.addEventListener("input", e => {
       const typed = e.target.value.trim();
-      const canonical = ENGLAND_COUNCIL_LOOKUP_BY_LOWER[typed.toLowerCase()];
+      const canonical = matchCouncilName(typed);
       if (canonical) {
         const resolution = resolveCouncilByName(canonical);
         applyResolution(resolution);
@@ -712,7 +744,12 @@ function wireStepInputs(stepName) {
       } else {
         state.input.council = "";
         state.input.detectedDistrict = "";
-        searchStatusEl.textContent = typed ? "Keep typing, or pick a suggestion from the list." : "";
+        const suggestions = councilSuggestions(typed, 4);
+        if (suggestions.length > 1) {
+          searchStatusEl.textContent = "Did you mean " + listToSentence(suggestions, "or") + "? Type one of those in full.";
+        } else {
+          searchStatusEl.textContent = typed ? "Keep typing your council's name." : "";
+        }
       }
     });
 

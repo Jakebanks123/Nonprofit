@@ -77,10 +77,10 @@ const NATIONAL_SCHEMES = [
       }
       let reason = "Based on your household size, income and housing costs, you look to be under the Universal Credit threshold.";
       if (!qualifiesForWorkAllowance && input.monthlyIncome > 0) {
-        reason += " Because you don't have children or a limited capability for work, there's no earnings disregard — every pound you earn reduces the award by 55p.";
+        reason += " You do not have children, and you have not told us a health condition limits your work. That means there is no free allowance. For every £1 you earn, your Universal Credit goes down by 55p.";
       }
       if (tariffIncome > 0) {
-        reason += ` Your savings above £6,000 are treated as producing about ${gbp(tariffIncome)}/month of income, which reduces the award.`;
+        reason += ` You have more than £6,000 saved. The rules count that as about ${gbp(tariffIncome)} a month of income, which lowers the amount you get.`;
       }
       return {
         eligible: true,
@@ -112,14 +112,14 @@ const NATIONAL_SCHEMES = [
       if (topUp <= 0) return { eligible: false };
       let reason = "You're over State Pension age and your income looks to be below the Pension Credit guarantee level.";
       if (deemedWeekly > 0) {
-        reason += ` Your savings above £10,000 are treated as producing about £${deemedWeekly}/week of income, which reduces the top-up.`;
+        reason += ` You have more than £10,000 saved. The rules count that as about £${deemedWeekly} a week of income, which lowers the top-up.`;
       }
       return {
         eligible: true,
         confidence: "likely",
         amount: { value: (topUp * 52) / 12, period: "month" },
         reason,
-        note: "Pension Credit also unlocks Warm Home Discount and other help automatically — it's worth checking even if the top-up looks small."
+        note: "Getting Pension Credit, even a small amount, also gets you the Warm Home Discount and other help. It is worth claiming even if the amount looks small."
       };
     }
   },
@@ -155,9 +155,9 @@ const NATIONAL_SCHEMES = [
         value = fullMonthly * (1 - clawbackFraction);
         confidence = "possible";
         if (clawbackFraction >= 1) {
-          reason += " The highest earner in your household looks to be above £80,000/year, so the High Income Child Benefit Charge would claw all of it back. It is still usually worth claiming at a nil rate, because that protects your National Insurance credits towards the State Pension.";
+          reason += " The highest earner in your home looks to be over £80,000 a year. A tax charge would take all of the Child Benefit back. It is still usually worth claiming and choosing to get £0. That keeps your National Insurance record going, which counts towards your State Pension.";
         } else {
-          reason += ` The highest earner in your household looks to be above £60,000/year, so roughly ${Math.round(clawbackFraction * 100)}% would be clawed back via the High Income Child Benefit Charge. The charge is based on that one person's income, not your household total.`;
+          reason += ` The highest earner in your home looks to be over £60,000 a year, so a tax charge would take back roughly ${Math.round(clawbackFraction * 100)}% of it. That charge looks at what one person earns, not what your whole home earns.`;
         }
       } else if (input.adults >= 2) {
         reason += " The High Income Child Benefit Charge is based on the highest single income in your household, not the combined total — so two people earning under £60,000 each are not affected.";
@@ -168,7 +168,7 @@ const NATIONAL_SCHEMES = [
         confidence,
         amount: value > 0.5
           ? { value, period: "month" }
-          : { value: 0, period: "n/a", display: "Worth claiming at nil rate (protects NI credits)" },
+          : { value: 0, period: "n/a", display: "Worth claiming at £0 — it protects your State Pension record" },
         reason
       };
     }
@@ -232,7 +232,7 @@ const NATIONAL_SCHEMES = [
         confidence: shortfallRatio > 0.4 ? "likely" : "possible",
         amount: { value: estimatedMonthlyReduction, period: "month" },
         reason: "Your council tax bill can usually be reduced based on income — the exact amount depends on your council's local scheme rules.",
-        note: "Administered by your local council, so the real amount will follow their specific scheme, not just this national estimate."
+        note: "Your council runs this, so your real discount follows their rules, not our estimate."
       };
     }
   }
