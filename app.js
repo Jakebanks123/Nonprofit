@@ -610,8 +610,11 @@ function renderResultsStep() {
   const byValue = (a, b) => annualValue(b.result) - annualValue(a.result);
   const hasAmount = entry => annualValue(entry.result) > 0;
 
-  /* Grouped by what to do about it, not by who administers it. Within each
-     group, the largest amount first — someone in crisis reads two cards. */
+  /* Grouped by how confident we are, NOT by value — the headings must not imply
+     the first group is worth more, because it often is not. A big Universal
+     Credit award can sit in the "might qualify" group while a small, certain
+     Child Benefit award sits above it. Within each group the largest amount
+     comes first, since someone in crisis may only read two cards. */
   const claimFirst = nationalResults.filter(r => r.result.confidence === "likely" && hasAmount(r)).sort(byValue);
   const alsoCheck = nationalResults.filter(r => r.result.confidence !== "likely" && hasAmount(r)).sort(byValue);
   const notMoney = nationalResults.filter(r => !hasAmount(r));
@@ -644,9 +647,9 @@ function renderResultsStep() {
     <p class="${UI.eyebrow}">Your results</p>
     <h1 class="${UI.title}" tabindex="-1" id="stepHeading">What you may be able to get</h1>
     ${summaryHtml}
-    ${renderGroup("Claim these first", "You look likely to qualify for these, and they are worth the most.", claimFirst, true)}
-    ${renderGroup("Also worth checking", "Less certain, but still worth a look.", alsoCheck, true)}
-    ${renderGroup("Not money, but worth having", "", notMoney, true)}
+    ${renderGroup("You probably qualify for these", "Based on what you told us, these look like a strong match. The amounts are still estimates.", claimFirst, true)}
+    ${renderGroup("You might qualify for these", "We are less sure about these, because they depend on things we did not ask about. One of them could still be worth more than the ones above, so it is worth checking them too.", alsoCheck, true)}
+    ${renderGroup("Not money, but worth having", "These do not pay you cash, so they are not in the figure above.", notMoney, true)}
     ${renderLocalSection(localResults)}
     ${renderResultsActions()}
   `;
@@ -729,18 +732,32 @@ function wireStepInputs(stepName) {
     // Applies a resolved {id, isPilot, realName} to shared state and keeps
     // both the postcode-lookup UI and the council-search field in sync,
     // whichever of the two the user actually used.
-    function applyResolution(resolution) {
+    /* rewriteField: only ever true when the resolution came from somewhere other
+       than the user's own typing in this box (i.e. the postcode lookup).
+       Rewriting the field while someone is mid-word corrupts what they typed:
+       matchCouncilName resolves on a unique prefix, so "Lee" already resolves
+       to Leeds, and overwriting the box then left their remaining keystrokes
+       appended to it — "Leeds" became "Leedsds" and blocked the step. */
+    function applyResolution(resolution, rewriteField) {
       state.input.council = resolution.id;
       state.input.detectedDistrict = resolution.realName;
-      searchInput.value = resolution.realName;
+      if (rewriteField) searchInput.value = resolution.realName;
     }
+
+    searchInput.addEventListener("blur", () => {
+      /* Normalise to the canonical name once focus leaves, so the box agrees
+         with what we matched — safe here because they've stopped typing. */
+      if (state.input.council && state.input.detectedDistrict) {
+        searchInput.value = state.input.detectedDistrict;
+      }
+    });
 
     searchInput.addEventListener("input", e => {
       const typed = e.target.value.trim();
       const canonical = matchCouncilName(typed);
       if (canonical) {
         const resolution = resolveCouncilByName(canonical);
-        applyResolution(resolution);
+        applyResolution(resolution, false);
         searchStatusEl.innerHTML = resolution.isPilot
           ? `<strong class="text-brand-800">Found:</strong> <strong>${COUNCILS.find(c => c.id === resolution.id)?.name}</strong>`
           : `<strong class="text-brand-800">Found:</strong> <strong>${canonical}</strong> — this demo doesn't have local schemes for that council yet, but you can still continue and see nationwide schemes.`;
@@ -775,11 +792,11 @@ function wireStepInputs(stepName) {
 
       if (result.status === "matched") {
         const resolution = { id: result.councilId, isPilot: true, realName: result.districtName };
-        applyResolution(resolution);
+        applyResolution(resolution, true);
         const councilName = COUNCILS.find(c => c.id === result.councilId)?.name;
         statusEl.innerHTML = `<strong class="text-brand-800">Found:</strong> You are in <strong>${result.districtName}</strong>, which is covered by <strong>${councilName}</strong>. Not right? Search for a different council below.`;
       } else if (result.status === "not_covered") {
-        applyResolution({ id: "other", isPilot: false, realName: result.districtName });
+        applyResolution({ id: "other", isPilot: false, realName: result.districtName }, true);
         statusEl.innerHTML = `You're in <strong>${result.districtName}</strong> — this demo doesn't have local schemes for that council yet, but you can still continue and see nationwide schemes.`;
       } else if (result.status === "empty") {
         statusEl.textContent = "Enter a postcode first, or search for your council below.";
@@ -790,7 +807,7 @@ function wireStepInputs(stepName) {
         const matchedName = matchOfflineCouncil(pc);
         if (matchedName) {
           const resolution = resolveCouncilByName(matchedName);
-          applyResolution(resolution);
+          applyResolution(resolution, true);
           const reason = result.status === "not_found" ? "the live lookup couldn't parse that postcode, so this used our bundled ONS data instead" : "the live lookup service wasn't reachable, so this used our bundled ONS data instead";
           if (resolution.isPilot) {
             const councilName = COUNCILS.find(c => c.id === resolution.id)?.name;

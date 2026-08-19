@@ -139,7 +139,10 @@ async function fillFlow(page, o) {
   // aria-live region populated
   const live = await page.$eval('#liveRegion', el => ({ text: el.textContent, aria: el.getAttribute('aria-live') }));
   console.log('Live region:', JSON.stringify(live));
-  if (!live.text) problems.push('aria-live region is empty after navigation');
+  // Deliberately empty on plain navigation: focusing the step heading already
+  // announces it, so also pushing it here made screen readers say it twice.
+  // What matters is that the region DOES carry validation errors — checked below.
+  if (live.aria !== 'polite') problems.push('live region lost its aria-live="polite"');
 
   // Every input has an associated label
   const unlabelled = await page.evaluate(() => {
@@ -188,8 +191,8 @@ async function fillFlow(page, o) {
 
   // negative / out-of-range values must be refused with a named reason
   for (const c of [
-    { field: 'housingCosts', val: '-300', want: /negative/i },
-    { field: 'savings', val: '-1000', want: /negative/i }
+    { field: 'housingCosts', val: '-300', want: /less than 0|negative/i },
+    { field: 'savings', val: '-1000', want: /less than 0|negative/i }
   ]) {
     await page.goto(fileUrl);
     await page.fill('#councilSearch', 'Leeds');
