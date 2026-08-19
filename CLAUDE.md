@@ -2,9 +2,13 @@
 
 ## Context
 
-This is a solo project owned by a developer who is new to Git, GitHub,
-deployment, and agentic coding. Assume good instincts, low tooling
-fluency.
+This is owned by a developer who is new to Git, GitHub, deployment, and
+agentic coding. Assume good instincts, low tooling fluency.
+
+As of August 2026 there is a second contributor also pushing to this
+repo, so it is no longer strictly solo — branches and PRs matter more
+than they did before, since more than one person can be touching the
+code at once.
 
 Teach as you go. When you use a term like "branch", "PR", "migration",
 or "env var" for the first time in a session, add a one-line plain
@@ -19,12 +23,15 @@ case.
 
 > **Note on the sections below.** They describe the intended Next.js / Prisma /
 > Doppler / Vercel setup. The project is not there yet — right now it is a
-> static site (`index.html` plus `app.js`, `style.css` and `data/`) with no
-> backend, no database and no build step. There is a `package.json`, but only
-> to provide `npm test`; it has no dependencies. Until that migration happens,
-> the stack-specific rules (migrations, server vs client components,
-> `doppler run --`, `npm run build`, `npm run lint`) do not apply, because
-> there is nothing for them to apply to. Everything in **Rules**, **Workflow**,
+> static site (`index.html` plus `app.js`, `data/`, and Tailwind-generated
+> `dist/style.css`) with no backend and no database. There is now a small
+> build step: `npm run build` compiles `src/input.css` into `dist/style.css`
+> via the Tailwind CLI — that's the only dependency in `package.json`.
+> `dist/style.css` must be committed in the same commit as whatever source
+> change produced it, never as a follow-up commit. Until the Next.js
+> migration happens, the stack-specific rules (migrations, server vs client
+> components, `doppler run --`, `npm run lint`) do not apply, because there
+> is nothing for them to apply to. Everything in **Rules**, **Workflow**,
 > **Reviewing** and **Not yet** does apply now.
 >
 > To run the checks today: `npm test`. Note it exits 0 even when the checks
