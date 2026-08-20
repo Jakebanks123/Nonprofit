@@ -223,13 +223,25 @@ const NATIONAL_SCHEMES = [
     category: "national",
     evaluate(input) {
       if (!input.pregnantOrChildUnder4) return { eligible: false };
-      const lowIncome = input.receivingUC || input.monthlyIncome < 1600;
-      if (!lowIncome) return { eligible: false };
+
+      // There is no route to Healthy Start on income alone — every real
+      // pathway goes through a specific qualifying benefit (checked against
+      // Turn2us, Aug 2026). On Universal Credit the cap is much tighter than
+      // a general low-income test: the household's monthly EARNED income
+      // must be £408 or less. Pension Credit carries no income test of its
+      // own on top of that.
+      const onPensionCredit = input.receivingPensionCredit;
+      const onUCWithinEarningsCap = input.receivingUC && input.monthlyIncome <= 408;
+      if (!onPensionCredit && !onUCWithinEarningsCap) return { eligible: false };
+
       return {
         eligible: true,
-        confidence: input.receivingUC ? "likely" : "possible",
+        confidence: onPensionCredit ? "likely" : "possible",
         amount: { value: (4.25 * 52) / 12, period: "month" },
-        reason: "Being pregnant or having a child under 4 on a low income, or while on Universal Credit, typically qualifies for a Healthy Start prepaid card for food and milk."
+        reason: onPensionCredit
+          ? "Being pregnant or having a child under 4 while on Pension Credit qualifies for a Healthy Start prepaid card for food and milk."
+          : "Being pregnant or having a child under 4, and on Universal Credit with low earnings from work, typically qualifies for a Healthy Start prepaid card for food and milk.",
+        note: onPensionCredit ? undefined : "The real limit is your household's earnings from work (£408 a month or less), not your total income — so this may look wrong if much of your income is not from a job."
       };
     }
   },

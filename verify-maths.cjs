@@ -219,6 +219,81 @@ check('CTS: working-age, £16,001 savings — must be ineligible',
   ctsAmount(baseInput({ age: 35, adults: 1, monthlyIncome: 600, savings: 16001 })),
   null, 0, 'one pound over the limit disqualifies');
 
+console.log('\n=========== HEALTHY START ===========\n');
+
+function hsResult(input) {
+  return scheme('healthy-start').evaluate(input);
+}
+function hsEligible(input) {
+  return hsResult(input).eligible;
+}
+
+/* CASE 10a — there is no route to Healthy Start on income alone. Every real
+   pathway goes through a specific qualifying benefit (Turn2us, checked Aug
+   2026). A pregnant person on a modest income but no benefit must not be
+   shown as eligible, even though the old code let anyone under £1,600/month
+   through regardless of benefit status. */
+check('Healthy Start: pregnant, £1,000/mo income, NOT on any benefit — must be ineligible',
+  hsEligible(baseInput({ pregnantOrChildUnder4: true, monthlyIncome: 1000 })) ? 1 : 0,
+  0, 0, 'no income-only route exists for Healthy Start');
+
+/* CASE 10b — on Universal Credit, the real cap is £408/month of HOUSEHOLD
+   EARNED income, not a general low-income test. Someone on UC earning well
+   above that must be ineligible, even though they are correctly getting some
+   (tapered) Universal Credit award. */
+check('Healthy Start: pregnant, on UC, £1,200/mo earnings — must be ineligible (over the £408 cap)',
+  hsEligible(baseInput({ pregnantOrChildUnder4: true, receivingUC: true, monthlyIncome: 1200 })) ? 1 : 0,
+  0, 0, 'real UC earnings cap is £408/month, not a general threshold');
+
+/* CASE 10c — on Universal Credit, within the £408 cap: must be eligible. */
+check('Healthy Start: pregnant, on UC, £300/mo earnings — must be eligible (within the £408 cap)',
+  hsEligible(baseInput({ pregnantOrChildUnder4: true, receivingUC: true, monthlyIncome: 300 })) ? 1 : 0,
+  1, 0, 'within the real UC earnings cap');
+
+/* CASE 10d — Pension Credit has no income test layered on top of it, so a
+   pensioner on Pension Credit qualifies regardless of other income. */
+check('Healthy Start: child under 4, on Pension Credit, £2,000/mo other income — must be eligible',
+  hsEligible(baseInput({ pregnantOrChildUnder4: true, receivingPensionCredit: true, monthlyIncome: 2000 })) ? 1 : 0,
+  1, 0, 'Pension Credit carries no additional income test');
+
+/* CASE 10e — neither pregnant nor a child under 4: ineligible regardless of
+   everything else. */
+check('Healthy Start: no pregnancy/child under 4, on UC, £0 income — must be ineligible',
+  hsEligible(baseInput({ pregnantOrChildUnder4: false, receivingUC: true, monthlyIncome: 0 })) ? 1 : 0,
+  0, 0, 'gate on pregnancy/child under 4 comes first');
+
+console.log('\n=========== WARM HOME DISCOUNT ===========\n');
+
+function whdResult(input) {
+  return scheme('warm-home-discount').evaluate(input);
+}
+function whdEligible(input) {
+  return whdResult(input).eligible;
+}
+
+/* CASE 11a — pension-age and on Pension Credit: automatic ("core group"). */
+check('WHD: age 70, on Pension Credit — must be eligible (core group)',
+  whdEligible(baseInput({ age: 70, receivingPensionCredit: true, monthlyIncome: 2000 })) ? 1 : 0,
+  1, 0, 'Pension Credit guarantee group is automatic regardless of income');
+
+/* CASE 11b — working-age, low income, but NOT on UC and NO disability flag:
+   must be ineligible. Low income alone is not the gate — this mirrors the
+   Council Tax Support capital-limit fix: a qualifying flag, not just a
+   number, has to be present. */
+check('WHD: working-age, £600/mo income, no UC, no disability flag — must be ineligible',
+  whdEligible(baseInput({ age: 35, monthlyIncome: 600, receivingUC: false, hasDisabilityOrHealthCondition: false })) ? 1 : 0,
+  0, 0, 'low income alone is not the gate — needs UC or a disability flag too');
+
+/* CASE 11c — working-age, on UC, income under the household threshold. */
+check('WHD: working-age, on UC, £900/mo income (threshold £1,200 for 0 kids) — must be eligible',
+  whdEligible(baseInput({ age: 35, monthlyIncome: 900, receivingUC: true, children: 0 })) ? 1 : 0,
+  1, 0, 'under the low-income-high-cost threshold, on UC');
+
+/* CASE 11d — working-age, disability flag instead of UC, still qualifies. */
+check('WHD: working-age, disability flag, £900/mo income, NOT on UC — must be eligible',
+  whdEligible(baseInput({ age: 35, monthlyIncome: 900, receivingUC: false, hasDisabilityOrHealthCondition: true })) ? 1 : 0,
+  1, 0, 'disability flag is an alternative gate to UC');
+
 console.log('\n=========== CHILD BENEFIT ===========\n');
 
 function cbAmount(input) {
