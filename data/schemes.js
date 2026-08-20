@@ -262,7 +262,13 @@ const NATIONAL_SCHEMES = [
     url: "https://www.gov.uk/apply-council-tax-reduction",
     category: "national",
     evaluate(input) {
-      if (input.savings > 16000 && !isOverPensionAge(input)) return { eligible: false };
+      // The £16,000 capital limit applies to pension-age claimants too — it is
+      // NOT waived just for being over State Pension age. The only people
+      // exempt are those actually receiving the guarantee element of Pension
+      // Credit, whose capital is disregarded entirely. Same combination the
+      // Warm Home Discount scheme above already uses for the same reason.
+      const capitalDisregarded = isOverPensionAge(input) && input.receivingPensionCredit;
+      if (input.savings > 16000 && !capitalDisregarded) return { eligible: false };
       const thresholdPerAdult = 1450;
       const householdThreshold = thresholdPerAdult * input.adults + input.children * 350;
       if (input.monthlyIncome >= householdThreshold) return { eligible: false };

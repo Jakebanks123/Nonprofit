@@ -175,6 +175,50 @@ function pcAmount(input) {
     expected, 0.5, 'deemed income on capital above £10k');
 }
 
+console.log('\n=========== COUNCIL TAX SUPPORT ===========\n');
+
+function ctsResult(input) {
+  return scheme('council-tax-support').evaluate(input);
+}
+function ctsAmount(input) {
+  const r = ctsResult(input);
+  return r.eligible ? r.amount.value : null;
+}
+
+/* CASE 9a — the £16,000 capital limit applies to pension-age claimants too.
+   It is NOT waived just for being over State Pension age — only actually
+   receiving the guarantee element of Pension Credit disregards capital
+   entirely (same combination the Warm Home Discount scheme already uses).
+   A pensioner with £50,000 saved and no Pension Credit must be ineligible,
+   same as a working-age claimant with identical savings. */
+check('CTS: pensioner, £50,000 savings, NOT on Pension Credit — must be ineligible',
+  ctsAmount(baseInput({ age: 70, adults: 1, monthlyIncome: 600, savings: 50000, receivingPensionCredit: false })),
+  null, 0, 'capital limit is not waived by age alone');
+
+/* CASE 9b — same pensioner, but actually on Pension Credit: capital is
+   disregarded entirely, so they remain eligible despite £50,000 saved. */
+{
+  const threshold = 1450;
+  const expected = Math.max(15, Math.min(180, (1 - 600 / threshold) * 180));
+  check('CTS: pensioner, £50,000 savings, ON Pension Credit — capital disregarded',
+    ctsAmount(baseInput({ age: 70, adults: 1, monthlyIncome: 600, savings: 50000, receivingPensionCredit: true })),
+    expected, 0.5, 'guarantee credit disregards capital entirely');
+}
+
+/* CASE 9c — boundary for working-age claimants: exactly £16,000 must still be
+   eligible (limit is "exceeds", not "reaches"); £16,001 must not be. Mirrors
+   the same boundary already enforced for Universal Credit, reg 18. */
+{
+  const threshold = 1450;
+  const expected = Math.max(15, Math.min(180, (1 - 600 / threshold) * 180));
+  check('CTS: working-age, exactly £16,000 savings — must still be eligible',
+    ctsAmount(baseInput({ age: 35, adults: 1, monthlyIncome: 600, savings: 16000 })),
+    expected, 0.5, 'boundary case — eligible at exactly £16,000');
+}
+check('CTS: working-age, £16,001 savings — must be ineligible',
+  ctsAmount(baseInput({ age: 35, adults: 1, monthlyIncome: 600, savings: 16001 })),
+  null, 0, 'one pound over the limit disqualifies');
+
 console.log('\n=========== CHILD BENEFIT ===========\n');
 
 function cbAmount(input) {
