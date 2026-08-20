@@ -23,6 +23,7 @@ const state = {
     highestIndividualIncomeBeforeTax: null,
     savings: 0,
     housingCosts: 0,
+    councilTaxAnnual: null,
     receivingUC: false,
     receivingPensionCredit: false,
     limitedCapabilityForWork: false,
@@ -328,6 +329,14 @@ function renderIncomeStep() {
              min="0" value="${state.input.housingCosts}" aria-describedby="housingCostsHint">
       <p class="${UI.hint}" id="housingCostsHint">Per month, in £. Enter 0 if you pay none.</p>
     </div>
+
+    ${state.input.age >= 66 ? `
+    <div class="${UI.group}">
+      <label class="${UI.label}" for="councilTaxAnnual">Your council tax bill</label>
+      <input type="number" id="councilTaxAnnual" name="councilTaxAnnual" class="${UI.field}" inputmode="numeric"
+             min="0" value="${state.input.councilTaxAnnual ?? ""}" aria-describedby="councilTaxAnnualHint">
+      <p class="${UI.hint}" id="councilTaxAnnualHint">Per year, in £ — check a recent bill or your council's website. This makes our Council Tax Reduction estimate specific to you. Leave blank and we'll use the England average bill instead, which is a rougher estimate.</p>
+    </div>` : ""}
   `;
 }
 
@@ -388,7 +397,10 @@ function sanitiseInput(raw) {
       ? null
       : num(raw.highestIndividualIncomeBeforeTax, 0, 100000, 0),
     savings: num(raw.savings, 0, 10000000, 0),
-    housingCosts: num(raw.housingCosts, 0, 10000, 0)
+    housingCosts: num(raw.housingCosts, 0, 10000, 0),
+    councilTaxAnnual: raw.councilTaxAnnual == null
+      ? null
+      : num(raw.councilTaxAnnual, 0, 20000, 0)
   });
 }
 
@@ -909,6 +921,10 @@ function wireStepInputs(stepName) {
     const highestBeforeTax = document.getElementById("highestIndividualIncomeBeforeTax");
     if (highestBeforeTax) {
       highestBeforeTax.addEventListener("input", e => state.input.highestIndividualIncomeBeforeTax = e.target.value ? Number(e.target.value) : null);
+    }
+    const councilTaxAnnual = document.getElementById("councilTaxAnnual");
+    if (councilTaxAnnual) {
+      councilTaxAnnual.addEventListener("input", e => state.input.councilTaxAnnual = e.target.value ? Number(e.target.value) : null);
     }
   } else if (stepName === "circumstances") {
     ["receivingUC", "receivingPensionCredit", "limitedCapabilityForWork", "hasDisabilityOrHealthCondition", "pregnantOrChildUnder4"].forEach(key => {

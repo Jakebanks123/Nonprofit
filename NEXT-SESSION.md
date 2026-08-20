@@ -1,7 +1,7 @@
 # Notes for whoever picks this up next
 
-Last updated 2026-08-20. Written for a future Claude session, but useful to a
-human too.
+Last updated 2026-08-20 (evening). Written for a future Claude session, but
+useful to a human too.
 
 ## What this project is
 
@@ -36,6 +36,40 @@ Independently re-checked against GOV.UK: UC standard allowances
 first child born before 6 April 2017, work allowances £427 / £710. These match
 the app exactly.
 
+## Council Tax Reduction — fixed 20 Aug, read this if you touch it again
+
+The invented `thresholdPerAdult = 1450` formula is gone. It's now two
+genuinely different treatments, because the underlying reality is different:
+
+- **Working-age**: signposted only, no figure. There is no accurate national
+  formula — each of ~296 councils runs its own scheme — and no current,
+  complete dataset of all of them exists to calculate from either (checked;
+  see `PRIORITIES.md` #5 for what was found and the two paths considered for
+  fixing this properly).
+- **Pension-age**: a real calculation, because this genuinely is one national
+  scheme (Council Tax Reduction Schemes (Prescribed Requirements) (England)
+  Regulations 2012, as amended). Applicable amount = Pension Credit guarantee
+  level (£238.00 single / £363.25 couple, 2026/27), 20% taper on income above
+  it, same £10,000-£16,000 deemed-income rule on savings as Pension Credit,
+  Guarantee Credit recipients passported to a reduction to nil. A new
+  optional question asks for the person's real council tax bill; left blank,
+  it falls back to the England average Band D bill (£2,392/yr) with
+  confidence downgraded.
+
+**Not modelled, and flagged in the result rather than guessed at**: severe
+disability/carer/disabled-child premiums, and non-dependant deductions for
+grown-up children or other adults in the household who aren't a partner. Both
+would need new questions the wizard doesn't currently ask — same reason UC
+error #1 in `FINDINGS.md` was recorded rather than fixed immediately.
+
+Ten new hand-computed cases cover this in `verify-maths.cjs` — search for
+"COUNCIL TAX SUPPORT". If you're extending this (e.g. adding premiums, or
+real per-council working-age figures), hand-compute the expected result from
+the actual regulations first, the same way these were done, rather than
+trusting a secondary source's summary — an AI-summarized council PDF gave a
+subtly wrong non-dependant-deduction schedule during this fix, caught only by
+cross-checking two independent sources before it went anywhere near the code.
+
 ## Carer's Allowance — read before building it
 
 It is the clearest new-benefit candidate (£2.35bn/yr unclaimed, 553,000 people,
@@ -60,9 +94,13 @@ So it cannot ship as a cheerful "you could get £4,495/yr" card.
 
 ## Environment and workflow constraints
 
-- Claude's cloud container has **no general internet** — no GitHub, no npm
-  registry, no postcodes.io. Files reach Jake through the device-bridge folder
-  or as chat attachments.
+- Claude's cloud container's internet access is **inconsistent across
+  sessions** — some sessions report none at all (no GitHub, no npm registry,
+  no postcodes.io), but the 20 Aug evening session was able to `git clone`
+  this repo directly and use web search/fetch tools to check gov.uk and
+  council sources. Don't assume either way; test with a shallow clone or a
+  search before relying on it, and fall back to the device-bridge folder or
+  chat attachments if it fails.
 - **`.js` downloads are blocked by his browser.** Send code as `.txt` and have
   him rename. Tell him to turn on File name extensions in Explorer first.
 - Jake uses **GitHub Desktop**, not the command line, and **Git is not installed

@@ -20,6 +20,16 @@
    2026/27. Update this in the same commit as the rates. */
 const RATES_TAX_YEAR = "2026/27";
 
+/* England-wide average Band D council tax bill for 2026/27: £2,392/yr
+   (MHCLG "Council tax levels set by local authorities in England 2026 to
+   2027" statistical release, 25 March 2026 — a 4.9%/£111 uprating on
+   2025/26, cross-checked via press coverage of that release, Aug 2026).
+   Used only as a fallback when someone doesn't tell us their own council tax
+   bill for the Council Tax Reduction calculation below — most homes are not
+   actually Band D, so this is a rough stand-in, not a real figure for any
+   specific household. Update alongside RATES_TAX_YEAR each year. */
+const COUNCIL_TAX_ENGLAND_AVERAGE_ANNUAL = 2392;
+
 /* Which UK tax year a given date falls in. Tax years run 6 April to 5 April,
    so "2026/27" means 6 April 2026 to 5 April 2027. Used by the app to warn
    users when the rates above have been overtaken, and by verify-maths.cjs to
@@ -284,24 +294,95 @@ const NATIONAL_SCHEMES = [
     url: "https://www.gov.uk/apply-council-tax-reduction",
     category: "national",
     evaluate(input) {
-      // The £16,000 capital limit applies to pension-age claimants too — it is
-      // NOT waived just for being over State Pension age. The only people
-      // exempt are those actually receiving the guarantee element of Pension
-      // Credit, whose capital is disregarded entirely. Same combination the
-      // Warm Home Discount scheme above already uses for the same reason.
-      const capitalDisregarded = isOverPensionAge(input) && input.receivingPensionCredit;
-      if (input.savings > 16000 && !capitalDisregarded) return { eligible: false };
-      const thresholdPerAdult = 1450;
-      const householdThreshold = thresholdPerAdult * input.adults + input.children * 350;
-      if (input.monthlyIncome >= householdThreshold) return { eligible: false };
-      const shortfallRatio = 1 - (input.monthlyIncome / householdThreshold);
-      const estimatedMonthlyReduction = Math.max(15, Math.min(180, shortfallRatio * 180));
+      // WORKING-AGE: every English billing authority designs its own
+      // working-age scheme — income bands, taper rate, minimum payments and
+      // band caps all vary council to council (checked against Shelter Legal
+      // England and several councils' own 2025/26-2026/27 scheme documents,
+      // Aug 2026; confirmed there is no current, complete, machine-readable
+      // dataset of all ~296 schemes to calculate from either). There is no
+      // accurate UK-wide formula, so — unlike every other scheme in this
+      // file — we deliberately do not estimate a figure here. Doing that was
+      // the original bug. Treated as a signpost instead — the same category
+      // BENEFITS-SHORTLIST.md puts PIP and Attendance Allowance in: real and
+      // usually worth applying for, but not something a few questions can
+      // honestly price. Real per-council figures for the pilot councils are
+      // a planned follow-up — see PRIORITIES.md.
+      if (!isOverPensionAge(input)) {
+        return {
+          eligible: true,
+          confidence: "possible",
+          reason: "You're very likely able to get some reduction on your council tax if you're on a low income — but working-age schemes are designed by each council individually, with different income bands and different amounts, so there's no accurate figure we can give you without knowing your specific council's rules.",
+          note: "Apply directly with your council to find out what you'd actually get."
+        };
+      }
+
+      // PENSION-AGE: genuinely a national scheme — the Council Tax Reduction
+      // Schemes (Prescribed Requirements) (England) Regulations 2012, as
+      // amended for 2026/27 — so unlike the working-age case above, a real
+      // UK-wide calculation is possible. Checked against Oxford City
+      // Council's and Durham County Council's published pensioner scheme
+      // documents and the DWP/Age UK 2026/27 benefit rates, Aug 2026.
+      //
+      // The £16,000 capital limit is NOT waived just for being over State
+      // Pension age — only actually receiving the guarantee element of
+      // Pension Credit disregards capital entirely (same combination Warm
+      // Home Discount above already uses for the same reason).
+      const onGuaranteeCredit = input.receivingPensionCredit;
+      if (input.savings > 16000 && !onGuaranteeCredit) return { eligible: false };
+
+      // Maximum reduction is 100% of the person's actual weekly council tax
+      // liability. We ask for their real bill; if they don't know it, fall
+      // back to the England average Band D bill, which is a much rougher
+      // stand-in since most homes aren't actually Band D.
+      const gotOwnBill = input.councilTaxAnnual != null;
+      const weeklyBill = (gotOwnBill ? input.councilTaxAnnual : COUNCIL_TAX_ENGLAND_AVERAGE_ANNUAL) / 52;
+      const billCaveat = gotOwnBill
+        ? ""
+        : " We don't know your actual council tax bill, so this uses the England average Band D bill instead of your real one — your real amount could be higher or lower.";
+      // Premiums (severe disability, caring, children in a pensioner's
+      // household) and non-dependant deductions (grown-up children or other
+      // non-dependent adults living with you) both change the real award,
+      // and neither is modelled yet — the app doesn't currently ask what it
+      // would need to work them out. Flagged rather than guessed at.
+      const modellingCaveat = " This doesn't include extra amounts some households get for a severe disability, for caring for someone, or for children in a pensioner's home, or deductions for grown-up children or other non-dependent adults living with you — so your real award could be higher or lower than this.";
+      const note = (billCaveat + modellingCaveat).trim();
+
+      if (onGuaranteeCredit) {
+        return {
+          eligible: true,
+          confidence: gotOwnBill ? "likely" : "possible",
+          amount: { value: (weeklyBill * 52) / 12, period: "month" },
+          reason: "Getting the guarantee part of Pension Credit means your income and savings are ignored for Council Tax Reduction, so you qualify to have your council tax reduced to nil.",
+          note
+        };
+      }
+
+      // Same applicable amount as the Pension Credit guarantee level — both
+      // come from the DWP Standard Minimum Guarantee — and the same
+      // £10,000-£16,000 tariff income rule as Pension Credit itself (Reg
+      // 15(6) SPC Regs 2002): £1/wk per £500 (or part) above £10,000.
+      const threshold = input.adults >= 2 ? 363.25 : 238.00;
+      const deemedWeekly = input.savings > 10000 ? Math.ceil((input.savings - 10000) / 500) : 0;
+      const wk = weeklyIncome(input) + deemedWeekly;
+      const excess = Math.max(0, wk - threshold);
+      // Main scheme taper: 20p reduction for every £1 of income above the
+      // applicable amount (confirmed via Oxford City Council's published
+      // 2025/26 pensioner scheme document, which states the calculation
+      // explicitly).
+      const weeklyReduction = Math.max(0, weeklyBill - excess * 0.20);
+      if (weeklyReduction <= 0) return { eligible: false };
+
+      let reason = "You're over State Pension age. The national pensioner Council Tax Reduction scheme reduces your bill by 20p for every £1 your income is above the Pension Credit guarantee level.";
+      if (deemedWeekly > 0) {
+        reason += ` You have more than £10,000 saved, which the rules count as roughly £${deemedWeekly} a week of extra income.`;
+      }
+
       return {
         eligible: true,
-        confidence: shortfallRatio > 0.4 ? "likely" : "possible",
-        amount: { value: estimatedMonthlyReduction, period: "month" },
-        reason: "Your council tax bill can usually be reduced based on income — the exact amount depends on your council's local scheme rules.",
-        note: "Your council runs this, so your real discount follows their rules, not our estimate."
+        confidence: "possible",
+        amount: { value: (weeklyReduction * 52) / 12, period: "month" },
+        reason,
+        note
       };
     }
   }

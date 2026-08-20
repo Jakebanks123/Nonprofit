@@ -180,44 +180,127 @@ console.log('\n=========== COUNCIL TAX SUPPORT ===========\n');
 function ctsResult(input) {
   return scheme('council-tax-support').evaluate(input);
 }
+// Only meaningful for the pension-age branch, which is the only branch that
+// ever returns an amount now. Working-age results are checked directly
+// against ctsResult() below instead.
 function ctsAmount(input) {
   const r = ctsResult(input);
-  return r.eligible ? r.amount.value : null;
+  return (r.eligible && r.amount) ? r.amount.value : null;
 }
 
-/* CASE 9a — the £16,000 capital limit applies to pension-age claimants too.
+/* CASE 9a — working-age claimants get no figure at all, on any income or
+   savings: every English billing authority runs its own working-age scheme
+   (checked against Shelter Legal England and several councils' 2025/26 and
+   2026/27 scheme documents, Aug 2026), so there is no accurate UK-wide
+   formula. This replaces the old invented national formula, which is the
+   bug this whole file exists to keep from recurring. Still "eligible" (a
+   scheme genuinely exists to point them at) but with no amount — a signpost,
+   not an estimate. */
+{
+  const r = ctsResult(baseInput({ age: 35, adults: 1, monthlyIncome: 600, savings: 0 }));
+  check('CTS: working-age — must be signposted (eligible with no amount), not given a figure',
+    (r.eligible && !r.amount) ? 1 : 0, 1, 0, 'no accurate national formula exists for working-age schemes');
+}
+{
+  // Same for someone clearly well off — still no false "ineligible" claim,
+  // since we have no council-specific bands to test against, but the reason
+  // text is conditioned on "if you're on a low income" so it doesn't
+  // overclaim for them either.
+  const r = ctsResult(baseInput({ age: 35, adults: 1, monthlyIncome: 20000, savings: 500000 }));
+  check('CTS: working-age, high income and savings — still signposted, not a fabricated figure',
+    (r.eligible && !r.amount) ? 1 : 0, 1, 0, 'no income/capital test is applied to the working-age signpost');
+}
+
+/* CASE 9b — the £16,000 capital limit applies to pension-age claimants too.
    It is NOT waived just for being over State Pension age — only actually
    receiving the guarantee element of Pension Credit disregards capital
-   entirely (same combination the Warm Home Discount scheme already uses).
-   A pensioner with £50,000 saved and no Pension Credit must be ineligible,
-   same as a working-age claimant with identical savings. */
+   entirely (same combination the Warm Home Discount scheme already uses). */
 check('CTS: pensioner, £50,000 savings, NOT on Pension Credit — must be ineligible',
   ctsAmount(baseInput({ age: 70, adults: 1, monthlyIncome: 600, savings: 50000, receivingPensionCredit: false })),
   null, 0, 'capital limit is not waived by age alone');
 
-/* CASE 9b — same pensioner, but actually on Pension Credit: capital is
-   disregarded entirely, so they remain eligible despite £50,000 saved. */
+/* CASE 9c — same pensioner, but actually on Guarantee Credit: capital is
+   disregarded entirely, so they remain eligible despite £50,000 saved, and
+   income/savings are irrelevant — they qualify for their bill reduced to
+   nil. No own bill given, so this falls back to the England average Band D
+   bill: £2,392/yr ÷ 52 = £46.00/wk exactly; monthly = 46 × 52 / 12. */
 {
-  const threshold = 1450;
-  const expected = Math.max(15, Math.min(180, (1 - 600 / threshold) * 180));
-  check('CTS: pensioner, £50,000 savings, ON Pension Credit — capital disregarded',
+  const expected = (46 * 52) / 12;
+  check('CTS: pensioner, £50,000 savings, ON Guarantee Credit — capital disregarded, reduced to nil (average bill fallback)',
     ctsAmount(baseInput({ age: 70, adults: 1, monthlyIncome: 600, savings: 50000, receivingPensionCredit: true })),
-    expected, 0.5, 'guarantee credit disregards capital entirely');
+    expected, 0.5, 'guarantee credit disregards capital and income entirely; £2,392/yr average bill ÷ 12');
 }
 
-/* CASE 9c — boundary for working-age claimants: exactly £16,000 must still be
-   eligible (limit is "exceeds", not "reaches"); £16,001 must not be. Mirrors
-   the same boundary already enforced for Universal Credit, reg 18. */
+/* CASE 9d — same as 9c but the person gave us their own bill: the estimate
+   should use that instead of the England average, and come back "likely"
+   rather than "possible" as a result. */
 {
-  const threshold = 1450;
-  const expected = Math.max(15, Math.min(180, (1 - 600 / threshold) * 180));
-  check('CTS: working-age, exactly £16,000 savings — must still be eligible',
-    ctsAmount(baseInput({ age: 35, adults: 1, monthlyIncome: 600, savings: 16000 })),
-    expected, 0.5, 'boundary case — eligible at exactly £16,000');
+  const r = ctsResult(baseInput({ age: 70, adults: 1, monthlyIncome: 600, savings: 50000, receivingPensionCredit: true, councilTaxAnnual: 1800 }));
+  check('CTS: pensioner on Guarantee Credit, own bill of £1,800/yr given — reduced to nil using their real bill',
+    r.eligible && r.amount ? r.amount.value : null, 1800 / 12, 0.01, 'own bill used directly, no averaging needed');
+  check('CTS: pensioner on Guarantee Credit, own bill given — confidence should be "likely"',
+    r.confidence === 'likely' ? 1 : 0, 1, 0, 'knowing the real bill removes the biggest source of uncertainty');
 }
-check('CTS: working-age, £16,001 savings — must be ineligible',
-  ctsAmount(baseInput({ age: 35, adults: 1, monthlyIncome: 600, savings: 16001 })),
-  null, 0, 'one pound over the limit disqualifies');
+
+/* CASE 9e — boundary for working-age claimants: exactly £16,000 does not
+   apply to them at all any more (no capital test on the signpost), so this
+   now checks the pension-age boundary instead. Exactly £16,000 must still be
+   eligible for the reduced-to-nil case (limit is "exceeds", not "reaches");
+   £16,001 must not be. Mirrors the same boundary already enforced for
+   Universal Credit, reg 18, and for Pension Credit itself. */
+check('CTS: pensioner on Guarantee Credit, exactly £16,000 savings — must still be eligible',
+  ctsAmount(baseInput({ age: 70, adults: 1, monthlyIncome: 600, savings: 16000, receivingPensionCredit: true })) !== null ? 1 : 0,
+  1, 0, 'boundary case — eligible at exactly £16,000');
+check('CTS: pensioner, NOT on Guarantee Credit, £16,001 savings — must be ineligible',
+  ctsAmount(baseInput({ age: 70, adults: 1, monthlyIncome: 600, savings: 16001, receivingPensionCredit: false })),
+  null, 0, 'one pound over the limit disqualifies without the guarantee-credit disregard');
+
+/* CASE 9f — the main taper: 20p off the reduction for every £1 of weekly
+   income above the Pension Credit guarantee level (Oxford City Council's
+   published pensioner scheme document states this explicitly).
+   Hand-computed for a single pensioner, £1,300/mo income, £2,600/yr own
+   bill, no savings:
+   weekly income = 1300 × 12 / 52 = 300.00 exactly.
+   excess = 300 − 238.00 = 62.00; taper = 62 × 0.20 = 12.40.
+   weekly bill = 2600 / 52 = 50.00 exactly.
+   weekly reduction = 50.00 − 12.40 = 37.60.
+   monthly = 37.60 × 52 / 12 = 162.9333... */
+{
+  const expected = (37.6 * 52) / 12;
+  check('CTS: single pensioner, £1,300/mo income, £2,600/yr bill — taper applied',
+    ctsAmount(baseInput({ age: 70, adults: 1, monthlyIncome: 1300, savings: 0, councilTaxAnnual: 2600 })),
+    expected, 0.5, '20% taper on income above the applicable amount');
+}
+
+/* CASE 9g — the couple threshold (£363.25/wk) is used once there are two
+   adults, same as Pension Credit itself, and the deemed-income rule on
+   savings between £10,000-£16,000 stacks with the taper.
+   Hand-computed for a couple, £1,300/mo income, £15,000 savings, £2,600/yr
+   own bill:
+   weekly income = 300.00 (as above); deemed = ceil((15000-10000)/500) = 10.
+   assessed weekly income = 310.00.
+   excess = 310.00 − 363.25 = negative → clamped to 0 → no taper, full bill. */
+{
+  const expected = (50 * 52) / 12; // no excess: full weekly bill, no taper
+  check('CTS: couple pensioners, £1,300/mo income, £15,000 savings, £2,600/yr bill — below couple threshold, full reduction',
+    ctsAmount(baseInput({ age: 70, adults: 2, monthlyIncome: 1300, savings: 15000, councilTaxAnnual: 2600 })),
+    expected, 0.5, 'assessed income still under the £363.25/wk couple threshold, even with deemed income added');
+}
+
+/* CASE 9h — same shape as 9g but with higher income, so the deemed income
+   from savings pushes them over the threshold and the taper applies too.
+   Hand-computed for a couple, £2,600/mo income, £15,000 savings, £2,600/yr
+   own bill:
+   weekly income = 2600 × 12 / 52 = 600.00 exactly; deemed = 10.
+   assessed = 610.00. excess = 610.00 − 363.25 = 246.75; taper = 49.35.
+   weekly bill = 50.00. weekly reduction = 50.00 − 49.35 = 0.65.
+   monthly = 0.65 × 52 / 12 = 2.8167. */
+{
+  const expected = (0.65 * 52) / 12;
+  check('CTS: couple pensioners, £2,600/mo income, £15,000 savings, £2,600/yr bill — taper and deemed income both apply',
+    ctsAmount(baseInput({ age: 70, adults: 2, monthlyIncome: 2600, savings: 15000, councilTaxAnnual: 2600 })),
+    expected, 0.5, 'deemed income pushes assessed income over the couple threshold, then the 20% taper applies');
+}
 
 console.log('\n=========== HEALTHY START ===========\n');
 
