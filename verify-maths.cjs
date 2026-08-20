@@ -596,6 +596,36 @@ function cliffsOn(input, variable) {
     'a card may only appear when the household total at the target beats the total now');
 }
 
+/* CASE H — a tapered NON-CASH scheme running out is not a cliff either.
+   Pension-age Council Tax Reduction is kind:"bill", so it contributes nothing
+   to the cash total and cannot be screened by a cash test. It is still
+   tapered, so it still reaches nil gradually.
+   REAL RULE (CTR (Prescribed Requirements) (England) Regs 2012): applicable
+   amount = the Pension Credit guarantee level, £238.00/wk single, and the
+   bill is reduced by 20p for every £1 of weekly income above it.
+   Hand-computed for a £2,392/yr bill = £46.00/wk:
+     reduction hits nil when (income - 238) * 0.20 = 46, i.e. income = £468/wk
+     = £2,028/mo. At £2,027/mo the reduction is 46.00 - 45.95 = £0.05 a week,
+     which is £2.40 a year.
+   Warning someone they are about to lose £2.40 a year would be false alarm,
+   so no cliff may be reported on this axis. */
+{
+  const pensioner = baseInput({ age: 70, monthlyIncome: 600, councilTaxAnnual: 2392 });
+  const income = cliffsOn(pensioner, 'monthlyIncome')
+    .filter(c => c.schemeId === 'council-tax-support');
+  check('CLIFF: no pension-age CTR income cliff (taper reaches nil)', income.length, 0, 0,
+    'at £2,027/mo the reduction is £0.05/wk — running out is not falling off');
+
+  /* But the £16,000 capital rule IS a cliff for the same household, because
+     it ends eligibility outright while a real reduction is still in payment. */
+  const capital = cliffsOn(pensioner, 'savings')
+    .filter(c => c.schemeId === 'council-tax-support');
+  check('CLIFF: pension-age CTR savings cliff still found', capital.length, 1, 0,
+    'reg: capital above £16,000 disqualifies outright unless on Guarantee Credit');
+  check('CLIFF: pension-age CTR savings cliff position', capital.length ? capital[0].at : null, 16000, 0,
+    'last qualifying pound of capital');
+}
+
 console.log('\n=========== SUMMARY ===========\n');
 if (!findings.length) {
   console.log('No differences found.');

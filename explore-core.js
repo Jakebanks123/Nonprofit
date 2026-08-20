@@ -139,6 +139,16 @@ function bisect(input, variable, from, to, predicate) {
    Detect coarsely, then bisect to pin the boundary to the pound: a £50-step
    sweep can only say the edge is somewhere in a £50 window, and a chart that
    labels a line "£16,000" from that is guessing. */
+/* Below this, losing a scheme is a rounding artefact rather than a loss worth
+   warning anyone about. £12 a year is £1 a month. */
+const MATERIAL_ANNUAL_MINIMUM = 12;
+
+function annualisedValue(amount) {
+  if (!amount || !amount.value) return 0;
+  if (amount.period === "month") return amount.value * 12;
+  return amount.value; // "year" and "one-off" are already whole-sum figures
+}
+
 function findCliffs(input, variable, range) {
   const axis = range || SWEEP_AXES[variable];
   const series = sweep(input, variable, axis);
@@ -163,16 +173,19 @@ function findCliffs(input, variable, range) {
          A tapered award reaches nil and the scheme stops being listed, which
          is a change in the eligible set but costs the claimant nothing — at
          £700/mo income Universal Credit runs out at £8,251 of capital having
-         just paid 75p. Marking that "Universal Credit stops here" would be
-         alarming and false. Only a loss of something material is a cliff.
+         just paid 75p, and pension-age Council Tax Reduction runs out at
+         £2,027/mo having just taken 5p a week off the bill. Putting a warning
+         on the chart for either would be alarming and false.
 
-         "bill" and "in-kind" schemes are always material when lost: their
-         worth never enters the cash total by design (a council tax reduction
-         is not money in an account), so they would fail any cash test. */
+         Test the scheme's own held amount rather than the cash total, because
+         "bill" and "in-kind" schemes never enter the cash total by design — a
+         council tax reduction is not money in an account. A scheme with no
+         amount at all is signposted rather than calculated (working-age
+         Council Tax Reduction), and losing it is still meaningful, so it
+         counts. */
       const kind = (scheme && scheme.kind) || "cash";
-      const heldValue = held && held.result.amount ? held.result.amount.value : 0;
-      const material = kind !== "cash" || heldValue >= 1;
-      if (!material) return;
+      const amount = held && held.result.amount;
+      if (amount && annualisedValue(amount) < MATERIAL_ANNUAL_MINIMUM) return;
 
       cliffs.push({
         at: edge,
