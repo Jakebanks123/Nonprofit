@@ -404,18 +404,12 @@ function sanitiseInput(raw) {
   });
 }
 
+/* The eligibility pass itself lives in explore-core.js, because the what-if
+   tools re-run it hundreds of times and two copies of this loop would be two
+   things to keep in step. This is the only caller that renders. */
 function computeResults() {
-  const input = sanitiseInput(state.input);
-  const nationalResults = NATIONAL_SCHEMES
-    .map(scheme => ({ scheme, result: scheme.evaluate(input) }))
-    .filter(r => r.result.eligible);
-
-  const localSchemes = LOCAL_SCHEMES[input.council] || [];
-  const localResults = localSchemes
-    .map(scheme => ({ scheme, result: scheme.evaluate(input) }))
-    .filter(r => r.result.eligible);
-
-  return { nationalResults, localResults };
+  const { national, local } = evaluateAll(sanitiseInput(state.input));
+  return { nationalResults: national, localResults: local };
 }
 
 /* The old version added every scheme's monthly value into one pot and

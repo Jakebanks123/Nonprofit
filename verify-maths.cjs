@@ -17,12 +17,12 @@ const ctx = { console, setTimeout, clearTimeout, fetch: undefined,
   AbortController: function () { this.abort = () => {}; this.signal = null; } };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-const combined = ['data/postcodes.js', 'data/schemes.js', 'app.js']
+const combined = ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
   .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8'))
   .join('\n;\n')
   + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS,
       ALL_ENGLAND_COUNCILS, ENGLAND_POSTCODE_DATA, matchOfflineCouncil,
-      resolveCouncilByName, sanitiseInput, gbp, RATES_TAX_YEAR, ukTaxYearOf, ratesStaleness });`;
+      resolveCouncilByName, sanitiseInput, gbp, evaluateAll, sweep, bisect, findCliffs, findNearMiss, SWEEP_AXES, RATES_TAX_YEAR, ukTaxYearOf, ratesStaleness });`;
 vm.runInContext(combined, ctx, { filename: 'app-combined.js' });
 const app = ctx;
 
@@ -474,6 +474,126 @@ check('CB: single earner £70k, 2 kids (50% clawback), via take-home fallback',
           + 'abolished on the same day as the April 2026 uprating.'
     });
   }
+}
+
+console.log('\n=========== CLIFF EDGES ===========\n');
+
+/* A "cliff" here means a point where a scheme STOPS APPLYING — not a point
+   where its amount steps down. The distinction is the whole feature and it is
+   easy to get backwards.
+
+   REAL RULE (reg 72, UC Regs 2013): capital between £6,000 and £16,000 is
+   converted to "tariff income" of £4.35 a month per £250 or part thereof.
+   Because of the "or part thereof" it is a staircase, not a slope: the award
+   is identical at £6,001 and £6,250, then drops £4.35 at £6,251. That is forty
+   drops between £6,000 and £16,000 and NOT ONE OF THEM is a cliff — the
+   claimant still qualifies on both sides of every one.
+
+   REAL RULE (reg 18, UC Regs 2013): capital ABOVE £16,000 disqualifies
+   outright. That IS a cliff, and it is the only one on this axis. */
+
+function cliffsOn(input, variable) {
+  return app.findCliffs(app.sanitiseInput(input), variable);
+}
+
+/* CASE A — the cliff exists and sits at exactly £16,000.
+   Hand-computed, single childless adult 25+, no income, no rent:
+   max award = standard allowance 424.90 only.
+   At £16,000 capital: tariff = ceil((16000-6000)/250) * 4.35 = 40 * 4.35
+   = 174.00. Award = 424.90 - 174.00 = 250.90.
+   At £16,001: reg 18 disqualifies. Award = nil. So the drop is £250.90. */
+{
+  const cliffs = cliffsOn(baseInput({ age: 35, monthlyIncome: 0, savings: 0 }), 'savings');
+  const uc = cliffs.filter(c => c.schemeId === 'universal-credit');
+  check('CLIFF: UC savings cliff count (£0 income)', uc.length, 1, 0,
+    'reg 18 is the only place UC eligibility ends on the savings axis');
+  check('CLIFF: UC savings cliff position (£0 income)', uc.length ? uc[0].at : null, 16000, 0,
+    'reg 18: capital ABOVE £16,000 disqualifies, so £16,000 itself still qualifies');
+  check('CLIFF: UC savings cliff size (£0 income)', uc.length ? uc[0].cashDrop : null, 250.90, 0.5,
+    'standard allowance 424.90 minus tariff income 40 * 4.35 = 174.00');
+}
+
+/* CASE B — the SAME cliff is much smaller once earnings taper the award.
+   Hand-computed, same household with £400/mo earnings and no work allowance
+   (childless, no LCW): 424.90 - (400 * 0.55) - 174.00 = 30.90.
+   A test that hardcodes one drop figure would be testing its fixture, not the
+   regulations. */
+{
+  const uc = cliffsOn(baseInput({ age: 35, monthlyIncome: 400, savings: 0 }), 'savings')
+    .filter(c => c.schemeId === 'universal-credit');
+  check('CLIFF: UC savings cliff size (£400/mo income)', uc.length ? uc[0].cashDrop : null, 30.90, 0.5,
+    '424.90 - 220.00 taper - 174.00 tariff = 30.90');
+}
+
+/* CASE C — above about £700/mo the award is already nil at £16,000, so there
+   is NOTHING LEFT TO LOSE and no cliff should be reported at all.
+   Hand-computed: 424.90 - (700 * 0.55 = 385.00) - 174.00 = -134.10, floored to
+   nil by Math.max(0, ...). Reporting a cliff here would tell someone they are
+   about to lose money they are not receiving. */
+{
+  const uc = cliffsOn(baseInput({ age: 35, monthlyIncome: 700, savings: 0 }), 'savings')
+    .filter(c => c.schemeId === 'universal-credit' && c.cashDrop > 0.005);
+  check('CLIFF: no UC cash cliff at £700/mo income', uc.length, 0, 0,
+    'award already nil at £16,000, so crossing it loses nothing');
+}
+
+/* CASE D — the forty tariff steps are NOT cliffs.
+   This is the regression guard for the staircase. If anyone reimplements
+   cliff detection as "a big drop between samples", the £4.35 steps start
+   being reported and this fails. */
+{
+  const inRange = cliffsOn(baseInput({ age: 35, monthlyIncome: 0, savings: 0 }), 'savings')
+    .filter(c => c.at >= 6000 && c.at < 16000);
+  check('CLIFF: no cliffs between £6,000 and £16,000', inRange.length, 0, 0,
+    'reg 72 tariff income steps the AMOUNT down 40 times; eligibility is unbroken throughout');
+}
+
+/* CASE E — cliffs in schemes that pay nothing into a bank account still count.
+   Warm Home Discount is kind:"bill", so it contributes £0 to the cash total
+   and is invisible to any cash-only detector. Its income test is £1,200/mo.
+   Hand-computed: eligible at £1,199, not at £1,200 — so the boundary the
+   bisection should pin is £1,199. */
+{
+  const whd = cliffsOn(
+    baseInput({ age: 35, monthlyIncome: 0, hasDisabilityOrHealthCondition: true, receivingUC: true }),
+    'monthlyIncome'
+  ).filter(c => c.schemeId === 'warm-home-discount');
+  check('CLIFF: Warm Home Discount income cliff found', whd.length, 1, 0,
+    'kind:"bill" — worth £150 but adds £0 to the cash line, so a cash-only sweep misses it');
+  check('CLIFF: Warm Home Discount income cliff position', whd.length ? whd[0].at : null, 1199, 1,
+    'last qualifying pound of monthly income');
+}
+
+/* CASE F — bisection must refuse a non-monotone predicate rather than guess.
+   REAL RULE: UC eligibility against AGE flips twice — the standard allowance
+   steps up at 25 (schemes.js), and pension age ends UC entirely at 66. A
+   bisection assumes exactly one crossing; given two it returns whichever half
+   it happened to halve into, stated with full confidence. It must return null. */
+{
+  const boundary = app.bisect(
+    app.sanitiseInput(baseInput({ age: 35, monthlyIncome: 620, savings: 0 })),
+    'age', 16, 120,
+    ({ national }) => national.some(r => r.scheme.id === 'universal-credit')
+  );
+  check('CLIFF: bisect refuses non-monotone UC-vs-age', boundary, null, 0,
+    'eligibility flips at 25 and again at 66 — no single boundary exists to return');
+}
+
+/* CASE G — near-miss must be gated on the HOUSEHOLD TOTAL, not one scheme.
+   REAL RULE: Healthy Start cuts off at £408/mo. Someone on £500/mo with a
+   child under 4 on UC is £92 short of a card worth £18.42/mo. Recommending a
+   £92/mo income cut to gain £18.42/mo is a £883/yr net LOSS, so no card may
+   be produced for it. */
+{
+  const misses = app.findNearMiss(baseInput({
+    age: 30, children: 1, monthlyIncome: 500, receivingUC: true, pregnantOrChildUnder4: true
+  }));
+  const hs = misses.filter(m => m.schemeId === 'healthy-start');
+  check('NEAR-MISS: no Healthy Start card for a net-negative income cut', hs.length, 0, 0,
+    'losing £92/mo of income to gain a £18.42/mo card is £883/yr worse off');
+  check('NEAR-MISS: every card shown is a net gain',
+    misses.filter(m => m.netGain <= 0).length, 0, 0,
+    'a card may only appear when the household total at the target beats the total now');
 }
 
 console.log('\n=========== SUMMARY ===========\n');

@@ -11,12 +11,12 @@ const ctx = { console, setTimeout, clearTimeout, fetch: undefined,
   AbortController: function () { this.abort = () => {}; this.signal = null; } };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-const combined = ['data/postcodes.js', 'data/schemes.js', 'app.js']
+const combined = ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
   .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8'))
   .join('\n;\n')
   + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS,
       ALL_ENGLAND_COUNCILS, ENGLAND_POSTCODE_DATA, matchOfflineCouncil,
-      resolveCouncilByName, sanitiseInput, gbp });`;
+      resolveCouncilByName, sanitiseInput, gbp, evaluateAll, sweep, bisect, findCliffs, findNearMiss, SWEEP_AXES });`;
 vm.runInContext(combined, ctx, { filename: 'app-combined.js' });
 const app = ctx;
 
