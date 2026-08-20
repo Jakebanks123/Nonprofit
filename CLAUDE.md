@@ -19,6 +19,21 @@ When he asks about a concept, explain it using this project as the
 example — his actual files, his actual data — not a generic tutorial
 case.
 
+## Project documentation
+
+Read these before starting work. They are in the repo root.
+
+- **`NEXT-SESSION.md`** — start here. What this project is, why
+  `verify-maths.cjs` matters and must not be weakened, the environment and
+  workflow constraints, and a warning about Carer's Allowance that must be
+  read before anyone builds it.
+- **`PRIORITIES.md`** — the ordered work list, worst-harm-first.
+- **`BENEFITS-SHORTLIST.md`** — 62 UK benefits with reach, value and take-up,
+  and a tiered recommendation on what to add. Its figures are single-sourced
+  and unverified; good enough to decide what to build, not to ship.
+- **`FINDINGS.md`** — the audit that found four calculation errors against
+  primary legislation, and how they were found.
+
 ## Stack
 
 > **Note on the sections below.** They describe the intended Next.js / Prisma /
@@ -34,8 +49,12 @@ case.
 > is nothing for them to apply to. Everything in **Rules**, **Workflow**,
 > **Reviewing** and **Not yet** does apply now.
 >
-> To run the checks today: `npm test`. Note it exits 0 even when the checks
-> find problems — read the SUMMARY block at the end of the output.
+> To run the checks today: `npm test`. It now exits non-zero when the checks
+> fail, so a red run means something is genuinely wrong — do not wave it
+> through. (It previously exited 0 regardless, which made the suite incapable
+> of failing; fixed 19 Aug 2026.) `npm test` covers the maths and edge-case
+> suites only — the browser tests in `verify-ui.js`, `verify-keyboard.js` and
+> `test.js` must still be run by hand.
 
 - Next.js (App Router), TypeScript, React
 - Tailwind for styling
