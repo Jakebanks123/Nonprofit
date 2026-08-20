@@ -177,12 +177,18 @@ const NATIONAL_SCHEMES = [
       const fullMonthly = (weekly * 52) / 12;
 
       // The High Income Child Benefit Charge is assessed on the HIGHEST
-      // INDIVIDUAL adjusted net income, never on the household total. For a
-      // single-adult household that's just their income; for a couple the user
-      // tells us the higher earner's figure separately.
-      const highestIndividualMonthly = input.adults >= 2
-        ? (input.highestIndividualIncome != null ? input.highestIndividualIncome : input.monthlyIncome)
-        : input.monthlyIncome;
+      // INDIVIDUAL adjusted net income — essentially gross income minus
+      // pension contributions and Gift Aid, i.e. BEFORE tax and National
+      // Insurance, not take-home pay (checked against LITRG, Aug 2026) —
+      // and never on the household total. For a single-adult household
+      // that's just their own income; for a couple, whichever one person
+      // earns most. We ask for this separately from the take-home income
+      // question earlier in the wizard, because the two are not the same
+      // number and take-home always understates it.
+      const gotBeforeTaxFigure = input.highestIndividualIncomeBeforeTax != null;
+      const highestIndividualMonthly = gotBeforeTaxFigure
+        ? input.highestIndividualIncomeBeforeTax
+        : input.monthlyIncome; // fallback only: take-home is lower than this, so a real charge can be missed
       const highestIndividualAnnual = highestIndividualMonthly * 12;
 
       let confidence = "likely";
@@ -196,12 +202,16 @@ const NATIONAL_SCHEMES = [
         value = fullMonthly * (1 - clawbackFraction);
         confidence = "possible";
         if (clawbackFraction >= 1) {
-          reason += " The highest earner in your home looks to be over £80,000 a year. A tax charge would take all of the Child Benefit back. It is still usually worth claiming and choosing to get £0. That keeps your National Insurance record going, which counts towards your State Pension.";
+          reason += " The highest earner in your home looks to be over £80,000 a year before tax. A tax charge would take all of the Child Benefit back. It is still usually worth claiming and choosing to get £0. That keeps your National Insurance record going, which counts towards your State Pension.";
         } else {
-          reason += ` The highest earner in your home looks to be over £60,000 a year, so a tax charge would take back roughly ${Math.round(clawbackFraction * 100)}% of it. That charge looks at what one person earns, not what your whole home earns.`;
+          reason += ` The highest earner in your home looks to be over £60,000 a year before tax, so a tax charge would take back roughly ${Math.round(clawbackFraction * 100)}% of it. That charge looks at what one person earns before tax, not what your whole home earns.`;
         }
       } else if (input.adults >= 2) {
-        reason += " The High Income Child Benefit Charge is based on the highest single income in your household, not the combined total — so two people earning under £60,000 each are not affected.";
+        reason += " The High Income Child Benefit Charge is based on the highest single income in your household before tax, not the combined total — so two people earning under £60,000 each are not affected.";
+      }
+
+      if (!gotBeforeTaxFigure) {
+        reason += " We worked this out using your take-home income, because we don't have anyone's income before tax. The real test uses income before tax, which is higher than take-home, so this may understate whether a charge applies.";
       }
 
       return {

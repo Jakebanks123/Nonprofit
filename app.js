@@ -20,7 +20,7 @@ const state = {
     eldestChildBornBefore2017: false,
     employment: "employed",
     monthlyIncome: null,
-    highestIndividualIncome: null,
+    highestIndividualIncomeBeforeTax: null,
     savings: 0,
     housingCosts: 0,
     receivingUC: false,
@@ -153,9 +153,12 @@ function validateStep(stepIndex) {
     if (s.savings > 10000000) return err("savings", "Enter savings under £10,000,000.");
     if (!finite(s.housingCosts) || s.housingCosts < 0) return err("housingCosts", "Rent or mortgage cannot be less than 0. Enter 0 if you pay none.");
     if (s.housingCosts > 10000) return err("housingCosts", "Enter a monthly rent or mortgage under £10,000.");
-    if (s.adults >= 2 && s.highestIndividualIncome != null) {
-      if (s.highestIndividualIncome < 0) return err("highestIndividualIncome", "The highest single income cannot be less than 0.");
-      if (s.highestIndividualIncome > s.monthlyIncome) return err("highestIndividualIncome", "One person cannot earn more than everyone in your home put together. Please check both numbers.");
+    // Deliberately not cross-checked against monthlyIncome: that figure is
+    // take-home (after tax) and this one is before tax, so one person's
+    // before-tax income can legitimately be a bigger number than the whole
+    // household's take-home — that is not a typo, it is how tax works.
+    if (s.children > 0 && s.highestIndividualIncomeBeforeTax != null && s.highestIndividualIncomeBeforeTax < 0) {
+      return err("highestIndividualIncomeBeforeTax", "Income before tax cannot be less than 0.");
     }
     return null;
   }
@@ -311,12 +314,12 @@ function renderIncomeStep() {
       </div>
     </div>
 
-    ${state.input.adults >= 2 ? `
+    ${state.input.children > 0 ? `
     <div class="${UI.group}">
-      <label class="${UI.label}" for="highestIndividualIncome">Highest single income in the household</label>
-      <input type="number" id="highestIndividualIncome" name="highestIndividualIncome" class="${UI.field}" inputmode="numeric"
-             min="0" value="${state.input.highestIndividualIncome ?? ""}" aria-describedby="highestIndividualIncomeHint">
-      <p class="${UI.hint}" id="highestIndividualIncomeHint">Per month, after tax, in £ — whichever one person earns the most. We ask because of a tax rule for Child Benefit. It looks at what one person earns, not what your whole home earns. So two people on £45,000 each are treated differently from one person on £90,000.</p>
+      <label class="${UI.label}" for="highestIndividualIncomeBeforeTax">${state.input.adults >= 2 ? "Highest single income in the household, before tax" : "Your income before tax"}</label>
+      <input type="number" id="highestIndividualIncomeBeforeTax" name="highestIndividualIncomeBeforeTax" class="${UI.field}" inputmode="numeric"
+             min="0" value="${state.input.highestIndividualIncomeBeforeTax ?? ""}" aria-describedby="highestIndividualIncomeBeforeTaxHint">
+      <p class="${UI.hint}" id="highestIndividualIncomeBeforeTaxHint">Per month, before tax, in £${state.input.adults >= 2 ? " — whichever one person earns the most" : ""}. This is different from the income you told us above, which was after tax. We ask because a tax rule for Child Benefit looks at income before tax${state.input.adults >= 2 ? ", and at what one person earns rather than what your whole home earns" : ""}. Not sure of the exact figure? A rough one is fine — leave it blank if you have no idea and we will use your take-home income instead.</p>
     </div>` : ""}
 
     <div class="${UI.group}">
@@ -381,9 +384,9 @@ function sanitiseInput(raw) {
     children: Math.round(num(raw.children, 0, 15, 0)),
     eldestChildBornBefore2017: !!raw.eldestChildBornBefore2017,
     monthlyIncome: num(raw.monthlyIncome, 0, 100000, 0),
-    highestIndividualIncome: raw.highestIndividualIncome == null
+    highestIndividualIncomeBeforeTax: raw.highestIndividualIncomeBeforeTax == null
       ? null
-      : num(raw.highestIndividualIncome, 0, 100000, 0),
+      : num(raw.highestIndividualIncomeBeforeTax, 0, 100000, 0),
     savings: num(raw.savings, 0, 10000000, 0),
     housingCosts: num(raw.housingCosts, 0, 10000, 0)
   });
@@ -903,9 +906,9 @@ function wireStepInputs(stepName) {
     document.getElementById("monthlyIncome").addEventListener("input", e => state.input.monthlyIncome = e.target.value ? Number(e.target.value) : null);
     document.getElementById("savings").addEventListener("input", e => state.input.savings = Number(e.target.value) || 0);
     document.getElementById("housingCosts").addEventListener("input", e => state.input.housingCosts = Number(e.target.value) || 0);
-    const highest = document.getElementById("highestIndividualIncome");
-    if (highest) {
-      highest.addEventListener("input", e => state.input.highestIndividualIncome = e.target.value ? Number(e.target.value) : null);
+    const highestBeforeTax = document.getElementById("highestIndividualIncomeBeforeTax");
+    if (highestBeforeTax) {
+      highestBeforeTax.addEventListener("input", e => state.input.highestIndividualIncomeBeforeTax = e.target.value ? Number(e.target.value) : null);
     }
   } else if (stepName === "circumstances") {
     ["receivingUC", "receivingPensionCredit", "limitedCapabilityForWork", "hasDisabilityOrHealthCondition", "pregnantOrChildUnder4"].forEach(key => {

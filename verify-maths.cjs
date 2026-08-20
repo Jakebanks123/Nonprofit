@@ -314,14 +314,16 @@ check('CB: 2 children, low income',
    on £45k each are both below the £60,000 threshold, so NO charge applies
    and Child Benefit is payable in full.
    Hand-computed: full entitlement, £184.38/mo for 2 children. */
-check('CB: couple, 2 kids, £7,500/mo household, highest earner £3,750/mo (£45k)',
-  cbAmount(baseInput({ adults: 2, children: 2, monthlyIncome: 7500, highestIndividualIncome: 3750 })),
+check('CB: couple, 2 kids, £7,500/mo household, highest earner £3,750/mo before tax (£45k)',
+  cbAmount(baseInput({ adults: 2, children: 2, monthlyIncome: 7500, highestIndividualIncomeBeforeTax: 3750 })),
   (27.05 + 17.90) * 52 / 12, 0.5,
   'both under £60k individually -> no charge, full Child Benefit');
 
-/* CASE 10 — single earner on £70,000 (£5,833/mo): HICBC tapers 50% away.
+/* CASE 10 — single earner on £70,000 before tax (£5,833/mo): HICBC tapers
+   50% away. No before-tax figure given here on purpose, so this also checks
+   the take-home fallback path still does the maths correctly.
    Hand-computed: (70000-60000)/20000 = 0.5 clawback -> 184.38 * 0.5 = 92.19 */
-check('CB: single earner £70k, 2 kids (50% clawback)',
+check('CB: single earner £70k, 2 kids (50% clawback), via take-home fallback',
   cbAmount(baseInput({ adults: 1, children: 2, monthlyIncome: 70000 / 12 })),
   ((27.05 + 17.90) * 52 / 12) * 0.5, 0.5, 'partial taper, not all-or-nothing');
 
@@ -333,6 +335,35 @@ check('CB: single earner £70k, 2 kids (50% clawback)',
   console.log(`${ok ? 'MATCH ' : 'DIFF  '} CB: single earner £90k still surfaced at nil rate`);
   console.log(`        eligible=${r.eligible}  display=${r.amount && r.amount.display}`);
   if (!ok) findings.push({ label: 'CB nil-rate surfacing', app: JSON.stringify(r), expected: 'eligible with £0 + NI-credits note' });
+}
+
+/* CASE 12 — the High Income Child Benefit Charge is based on adjusted net
+   income, essentially income BEFORE tax, not take-home pay (checked against
+   LITRG, Aug 2026). A single adult with take-home comfortably under £60k/yr
+   but income before tax over it must still see a charge, once they give us
+   the before-tax figure — take-home alone would have hidden this charge
+   entirely under the old logic.
+   Take-home £3,000/mo (£36k/yr): no charge if used directly.
+   Before tax £5,500/mo (£66k/yr): 30% over the £60k-£80k taper band. */
+{
+  const beforeTaxAnnual = 5500 * 12;
+  const clawback = Math.min(1, (beforeTaxAnnual - 60000) / 20000);
+  const expected = ((27.05 + 17.90) * 52 / 12) * (1 - clawback);
+  check('CB: £3,000/mo take-home but £5,500/mo before tax — charge must use the before-tax figure',
+    cbAmount(baseInput({ adults: 1, children: 2, monthlyIncome: 3000, highestIndividualIncomeBeforeTax: 5500 })),
+    expected, 0.5, 'adjusted net income is before tax, not take-home');
+}
+
+/* CASE 13 — without a before-tax figure at all, the app must still answer
+   (better an approximate answer with a caveat than none) by falling back to
+   take-home, but must say so in plain language, since take-home understates
+   this and a real charge could be missed. */
+{
+  const r = scheme('child-benefit').evaluate(baseInput({ adults: 1, children: 2, monthlyIncome: 3000 }));
+  const flags = /before tax/i.test(r.reason) && /take-home/i.test(r.reason);
+  console.log(`${flags ? 'MATCH ' : 'DIFF  '} CB: no before-tax figure given — reason must flag the take-home fallback`);
+  console.log(`        reason="${r.reason}"`);
+  if (!flags) findings.push({ label: 'CB take-home fallback caveat', app: r.reason, expected: 'reason mentions falling back to take-home income' });
 }
 
 /* ---------- STALENESS TRIPWIRE ----------
