@@ -6,13 +6,14 @@
   "scripts": {
     "build": "tailwindcss -i src/input.css -o dist/style.css --minify",
     "watch": "tailwindcss -i src/input.css -o dist/style.css --watch",
-    "test": "node verify-maths.cjs && node verify-edgecases.cjs && node verify-ui.js && node verify-keyboard.js && node test.js",
+    "test": "node verify-maths.cjs && node verify-edgecases.cjs && node verify-ui.js && node verify-keyboard.js && node verify-explore.js && node test.js",
     "test:maths": "node verify-maths.cjs",
     "test:edgecases": "node verify-edgecases.cjs",
     "test:ui": "node verify-ui.js",
     "test:keyboard": "node verify-keyboard.js",
+    "test:explore": "node verify-explore.js",
     "test:scenarios": "node test.js",
-    "test:browser": "node verify-ui.js && node verify-keyboard.js && node test.js"
+    "test:browser": "node verify-ui.js && node verify-keyboard.js && node verify-explore.js && node test.js"
   },
   "devDependencies": {
     "@tailwindcss/cli": "4.3.3",
