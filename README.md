@@ -83,15 +83,33 @@ and nothing is stored.
 
 ## Tests
 
-Browser tests use Playwright; the eligibility maths runs in plain Node.
+All five suites run together and take about five seconds:
 
 ```bash
-node verify-maths.cjs        # eligibility maths vs hand-computed DWP rules
-node verify-edgecases.cjs    # negative/extreme/NaN input handling
-node verify-ui.js            # wizard flow, navigation, accessibility, mobile layout
-node verify-keyboard.js      # keyboard-only operation, scheme data sanity
-node test.js                 # end-to-end household scenarios
+npm test
 ```
+
+Browser tests use Playwright, which needs its browser downloaded once after
+`npm install`:
+
+```bash
+npx playwright install chromium
+```
+
+Individually, if you want to narrow things down:
+
+```bash
+npm run test:maths        # eligibility maths vs hand-computed DWP rules
+npm run test:edgecases    # negative/extreme/NaN input handling
+npm run test:ui           # wizard flow, navigation, accessibility, mobile layout
+npm run test:keyboard     # keyboard-only operation, scheme data sanity
+npm run test:scenarios    # end-to-end household scenarios
+npm run test:browser      # the three Playwright suites only
+```
+
+Every suite exits non-zero when it finds something, so a red run means a real
+problem. That was not true of the three browser suites until August 2026 —
+they printed their findings and reported success anyway.
 
 `verify-maths.cjs` is the important one: it hand-computes the correct answer for each case from the
 regulations, independently of the app's own code, so a wrong formula shows up as a mismatch rather

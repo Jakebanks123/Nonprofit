@@ -27,7 +27,7 @@ async function fillFlow(page, o) {
 }
 
 (async () => {
-  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+  const browser = await chromium.launch();
   const page = await browser.newPage();
   page.on('pageerror', e => problems.push('PAGE ERROR: ' + e.message));
 
@@ -245,5 +245,7 @@ async function fillFlow(page, o) {
   else {
     console.log(problems.length + ' problem(s):\n');
     problems.forEach((p, i) => console.log(`${i + 1}. ${p}`));
+    /* Exit non-zero so `npm test` can fail. See verify-keyboard.js. */
+    process.exitCode = 1;
   }
 })();
