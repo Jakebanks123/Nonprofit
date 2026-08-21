@@ -72,14 +72,23 @@ const exploreCache = {};
    every figure is compared against exploreBaseline() below, which is
    evaluated at the real, unclamped answer. */
 function exploreStartValue(axis, value) {
-  /* Rounded, because the slider has step="1" from an integer min and the
-     browser will refuse a fractional value anyway — sanitiseInput does not
-     round, and verify-ui.js deliberately pushes 1200.756 through the wizard.
-     Leaving the fraction here put exploreState.value and the thumb back out
-     of step with each other, which is the bug step="1" exists to kill. What
-     must NOT be rounded is the figure it is compared against; see atTrue in
-     renderExploreReadout(). */
-  return Math.round(Math.min(axis.max, Math.max(axis.min, Number(value) || 0)));
+  /* Clamped, NOT rounded, and the slider is step="any" so it can hold this
+     exactly however many pence are in it.
+
+     The previous version rounded to the nearest pound and then treated the
+     thumb as "at the answer" whenever it was within £1, which is the same
+     bug as the £25 grid wearing a smaller hat. A tolerance window is only
+     safe if no rule boundary falls inside it, and rule boundaries are the
+     entire subject of this panel. Savings of £16,000.50 rounded the thumb to
+     £16,000 and then printed the £16,000.50 figure for it: £195 a month,
+     when £16,000 is worth £1,433.41 — understated by £14,864 a year, and
+     flatly contradicted by the panel's own cliff list two inches below,
+     which correctly said Universal Credit is worth about £1,239 at £16,000.
+     It also put every cliff a pound late.
+
+     With step="any" the thumb sits on the answer itself and no tolerance is
+     needed, so atTrue below is an exact comparison. */
+  return Math.min(axis.max, Math.max(axis.min, Number(value) || 0));
 }
 
 /* One point on the curve, evaluated rather than looked up.
@@ -309,15 +318,14 @@ function renderExploreReadout(data, input, baseline, startValue, value) {
   const here = exploreFormatValue(axis, value);
   const trueValue = Number(input[data.key]) || 0;
 
-  /* Is the thumb on the household's real position? Within a pound, not
-     exactly equal: the thumb is an integer and the answer need not be. When
-     it is, the baseline is used verbatim instead of re-evaluating at the
-     rounded pound, so the figure printed here is the identical number the
-     results summary is showing at the top of the screen — by construction,
-     not by luck. It is also false whenever the answer is off the end of the
-     axis and the thumb has been clamped, which is exactly right: £20,000 is
-     not where a household holding £40,000 is standing. */
-  const atTrue = Math.abs(value - trueValue) < 1;
+  /* Is the thumb on the household's real position? EXACTLY, never within a
+     tolerance — see exploreStartValue(). When it is, the baseline is printed
+     verbatim rather than re-evaluated, so this figure is the identical number
+     the results summary is showing at the top of the screen by construction
+     rather than by luck. It is false whenever the answer is off the end of
+     the axis and the thumb has been clamped, which is right: £20,000 is not
+     where a household holding £40,000 is standing. */
+  const atTrue = value === trueValue;
   const now = atTrue ? baseline : exploreEvalAt(input, data.key, value);
 
   const nameOf = id => {
@@ -385,8 +393,10 @@ function renderExploreReadout(data, input, baseline, startValue, value) {
   const worse = !worseOff ? ""
     : ownDelta > 0
       /* The cliff, in one sentence. Someone whose pay is going up by £1 needs
-         to be told this more than anyone else who will read this panel. */
-      ? " Overall that would leave the household with less, even though more is coming in."
+         to be told this more than anyone else who will read this panel.
+         Worded to avoid following "£1 a month more coming in" with "even
+         though more is coming in", which is how it read at first. */
+      ? " Even so, the household would end up with less overall."
       : " Overall that would leave the household with less.";
 
   let comparison;
@@ -446,7 +456,7 @@ function renderExploreReadout(data, input, baseline, startValue, value) {
    inducement read aloud. */
 function exploreAnnouncement(data, input, baseline, value) {
   const trueValue = Number(input[data.key]) || 0;
-  const atTrue = Math.abs(value - trueValue) < 1;
+  const atTrue = value === trueValue;
   const now = atTrue ? baseline : exploreEvalAt(input, data.key, value);
   const ownDelta = atTrue ? 0 : value - trueValue;
 
@@ -569,14 +579,15 @@ function renderExploreBody(input) {
           : "The dashed red lines mark where a scheme stops. Each one is named underneath."}</p>` : ""}
     </div>` : "";
 
-  /* step="1", not axis.step — see exploreStartValue(). The thumb has to be
-     able to land on the answer itself, which is not on the sweep grid in
-     general. wireExploreBody() binds the arrow keys to axis.step so that a
-     one-pound step does not mean seven thousand key presses. */
+  /* step="any", not axis.step — see exploreStartValue(). The thumb has to be
+     able to land on the answer itself, pence and all, and no rule boundary
+     may fall between where it sits and the figure printed for it.
+     wireExploreBody() binds the arrow keys to axis.step so that a continuous
+     slider is still a usable keyboard control. */
   return `
     <label class="mb-1.5 block text-base font-medium text-ink" for="exploreSlider">${axis.label}</label>
     <input type="range" id="exploreSlider" name="exploreSlider" class="w-full"
-           min="${axis.min}" max="${axis.max}" step="1" value="${value}"
+           min="${axis.min}" max="${axis.max}" step="any" value="${value}"
            style="--range-progress:${pct}%"
            aria-valuetext="${exploreFormatValue(axis, value)}"
            aria-describedby="exploreSliderHint">
@@ -695,6 +706,14 @@ function wireExploreBody(input) {
   clearTimeout(exploreState.announceTimer);
 
   function apply(value, fromSlider) {
+    /* This closure outlives its slider. Switch axis mid-gesture and the
+       browser still delivers the cancel to the detached income slider, whose
+       listener then wrote an income figure into exploreState and read it
+       aloud over the savings tab — the stale-announcement bug from the second
+       review pass, back through a different door. One guard closes the whole
+       class: if this slider is no longer in the document, this closure is not
+       in charge of anything. */
+    if (!slider.isConnected) return;
     exploreState.value = value;
 
     const pct = ((value - axis.min) / (axis.max - axis.min)) * 100;
@@ -759,29 +778,70 @@ function wireExploreBody(input) {
 
      Armed for touch only. A mouse press on the track is SUPPOSED to jump to
      the click — that is how every slider on the web behaves. */
+  /* Armed on the FIRST touch only. Arming unconditionally on every
+     pointerdown meant the second finger of a pinch-zoom recorded the value
+     the first finger had already knocked the control to, so the guard
+     restored 3500 instead of 1100 and a two-finger zoom on the slider moved
+     the value by four thousand pounds with nothing to undo it. Counting the
+     touches down again is what keeps the recorded value alive until the whole
+     gesture is over. */
+  const livePointers = new Set();
   let valueBeforeTouch = null;
-  const disarm = () => { valueBeforeTouch = null; };
+
+  const forgetTouch = () => { livePointers.clear(); valueBeforeTouch = null; };
   const undoTouchJump = () => {
     if (valueBeforeTouch !== null && Number(slider.value) !== valueBeforeTouch) {
       slider.value = String(valueBeforeTouch);
       apply(valueBeforeTouch, true);
     }
-    valueBeforeTouch = null;
   };
-  slider.addEventListener("pointerdown", e => {
-    valueBeforeTouch = e.pointerType === "touch" ? Number(slider.value) : null;
-  }, { passive: true });
-  slider.addEventListener("pointerup", disarm, { passive: true });
-  slider.addEventListener("touchend", disarm, { passive: true });
-  slider.addEventListener("pointercancel", undoTouchJump, { passive: true });
-  /* Belt and braces for an engine that cancels the touch instead. */
-  slider.addEventListener("touchcancel", undoTouchJump, { passive: true });
 
-  /* step="1" is what lets the thumb land on the user's own answer, but it also
-     makes a single arrow press worth £1 — 7,000 of them to cross the income
-     axis, which is not a keyboard interface. The arrows are therefore bound to
-     the sweep step instead. Home and End are left to the browser: they already
-     go to the ends and fire input. */
+  slider.addEventListener("pointerdown", e => {
+    if (e.pointerType !== "touch") return;
+    if (livePointers.size === 0) valueBeforeTouch = Number(slider.value);
+    livePointers.add(e.pointerId);
+  }, { passive: true });
+  slider.addEventListener("pointerup", e => {
+    if (e.pointerType !== "touch") return;
+    livePointers.delete(e.pointerId);
+    if (livePointers.size === 0) valueBeforeTouch = null;
+  }, { passive: true });
+  slider.addEventListener("pointercancel", e => {
+    if (e.pointerType !== "touch") return;
+    undoTouchJump();
+    livePointers.delete(e.pointerId);
+    if (livePointers.size === 0) valueBeforeTouch = null;
+  }, { passive: true });
+
+  /* Tracked by id rather than counted, and hard-reset the moment no finger is
+     left on the glass. A bare counter drifts if an engine ever drops a
+     pointerup — and a drifted counter is not a harmless miscount, it is a
+     recorded value that never expires, waiting for some later cancel to
+     restore a figure from a gesture minutes ago. touchend is the one event
+     that can say authoritatively that the hand has gone. */
+  slider.addEventListener("touchend", e => {
+    if (!e.touches || e.touches.length === 0) forgetTouch();
+  }, { passive: true });
+  /* Belt and braces for an engine that cancels the touch instead of the
+     pointer. A touch event carries no pointerType to test against, so the
+     whole gesture is torn down.
+
+     WORDING NOTE, and it is not pedantry: Tailwind's scanner reads these
+     comments as well as the code, and an ordinary English word that happens
+     to also be a utility name gets compiled into dist/style.css as a real
+     rule. One word in the sentence above did exactly that on the way in.
+     Nothing breaks — it is inert CSS — but this project's worst documented
+     footgun is the gap between the classes in the source and the classes in
+     the build, and prose quietly widening that gap is worth knowing about. */
+  slider.addEventListener("touchcancel", () => {
+    undoTouchJump();
+    forgetTouch();
+  }, { passive: true });
+
+  /* step="any" is what lets the thumb land on the user's own answer to the
+     penny, but a continuous slider has no useful keyboard step at all. The
+     arrows are therefore bound to the sweep step. Home and End are left to
+     the browser: they already go to the ends and fire input. */
   slider.addEventListener("keydown", e => {
     if (e.altKey || e.ctrlKey || e.metaKey) return;
     let delta = 0;
@@ -791,7 +851,12 @@ function wireExploreBody(input) {
     else if (e.key === "PageDown") delta = -axis.step * 10;
     else return;
     e.preventDefault();
-    const next = Math.min(axis.max, Math.max(axis.min, Number(slider.value) + delta));
+    /* Snapped to the sweep grid rather than added to whatever pence the thumb
+       is sitting on, so that a household answering £1,200.756 gets £1,225 and
+       £1,250 from repeated presses instead of £1,225.756 and £1,250.756. */
+    const raw = Number(slider.value) + delta;
+    const snapped = Math.round(raw / axis.step) * axis.step;
+    const next = Math.min(axis.max, Math.max(axis.min, snapped));
     slider.value = String(next);
     apply(next, true);
   });

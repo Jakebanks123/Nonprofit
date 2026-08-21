@@ -61,6 +61,10 @@ async function setSlider(page, value) {
   }, value);
 }
 
+/* The panel rounds to the nearest £5 to agree with the headline, so an exact
+   pound figure from evaluateAll will not appear verbatim. */
+const gbpish = n => '£' + (Math.round(n / 5) * 5).toLocaleString('en-GB');
+
 const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, ' ').trim();
 
 (async () => {
@@ -242,7 +246,7 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
      pushes exactly that figure through the wizard, and the slider is an
      integer control — so the household's real position is not a value the
      thumb can hold. The panel has to agree with the headline anyway. */
-  const offGrid = [1237, 1263, 1591, 811, 1200.756];
+  const offGrid = [1237, 1263, 1591, 811, 1200.756, 1199.5];
   for (const income of offGrid) {
     await toResults(page, { income });
     const r = await page.evaluate(() => {
@@ -257,7 +261,7 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
       };
     });
     check(`£${income}: the thumb lands on the answer itself`,
-      r.slider === r.state && Math.abs(r.slider - income) < 1,
+      r.slider === income && r.state === income,
       `slider ${r.slider}, state ${r.state}`);
     check(`£${income}: it counts as the starting point`, r.disabled === true);
     check(`£${income}: the panel figure matches the headline`,
@@ -558,13 +562,13 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
     checks: ['receivingUC', 'pregnantOrChildUnder4'] }, 409);
   console.log('  £408 -> £409: ' + t.slice(60, 260));
   check('One pound over the Healthy Start limit is called out as a loss',
-    /leave the household with less, even though more is coming in/.test(t), t.slice(0, 200));
+    /Even so, the household would end up with less overall/.test(t), t.slice(0, 200));
   check('and the scheme is named', /no longer be listed for .*Healthy Start/.test(t));
 
   t = await warnsAt({ income: 1599, checks: ['receivingUC'] }, 1600);
   console.log('  £1,599 -> £1,600: ' + t.slice(60, 260));
   check('One pound over the Warm Home Discount limit is called out too',
-    /leave the household with less, even though more is coming in/.test(t), t.slice(0, 200));
+    /Even so, the household would end up with less overall/.test(t), t.slice(0, 200));
 
   /* The other half of the bug: it fired on moves too small to matter, which
      is how a warning stops being read. */
@@ -577,6 +581,103 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   t = await warnsAt({ checks: ['receivingUC'] }, 7000);
   check('Earning far more does not warn', !/leave the household with less/.test(t),
     t.slice(0, 160));
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== P2. PENCE MUST NOT HIDE A CLIFF =====\n');
+
+  /* Nothing validates pence out of the savings field, and a bank balance has
+     them. The panel used to treat the thumb as "at the answer" whenever it was
+     within £1, which is a two-integer-wide window when the answer ends in .5 —
+     and a tolerance window is only safe if no rule boundary falls inside it.
+     Rule boundaries are the entire subject of this panel.
+
+     Savings of £16,000.50 with the thumb on £16,000: the readout printed £195
+     a month and captioned it "That is what you told us", while the cliff list
+     two inches below correctly said Universal Credit is worth about £1,239 at
+     £16,000. Understated by £14,864 a year, and self-contradictory on one
+     screen. The tolerance is gone; step="any" lets the thumb hold the pence. */
+  await toResults(page, { savings: 16000.5 });
+  const pence = await page.evaluate(() => {
+    document.querySelector('[data-explore-axis="savings"]').click();
+    const set = v => {
+      const el = document.getElementById('exploreSlider');
+      el.value = String(v);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return document.getElementById('exploreReadout').textContent.replace(/\s+/g, ' ').trim();
+    };
+    const truthAt = v => {
+      const r = evaluateAll(cloneWith(exploreState.input, 'savings', v));
+      return Math.round(cashMonthlyAt(r.national));
+    };
+    return { at16000: set(16000), at16001: set(16001), truth16000: truthAt(16000),
+             truth16001: truthAt(16001) };
+  });
+  console.log('  truth at £16,000: £' + pence.truth16000 + '/mo, at £16,001: £' + pence.truth16001);
+  console.log('  ' + pence.at16000.slice(0, 130));
+  check('At £16,000 the panel shows the figure for £16,000',
+    pence.at16000.indexOf(gbpish(pence.truth16000)) !== -1,
+    'wanted about £' + pence.truth16000 + ', got: ' + pence.at16000.slice(0, 120));
+  check('and £1 over the limit it shows the figure for £16,001',
+    pence.at16001.indexOf(gbpish(pence.truth16001)) !== -1,
+    'wanted about £' + pence.truth16001 + ', got: ' + pence.at16001.slice(0, 120));
+  check('Neither is captioned as the household\'s own position',
+    !/That is what you told us/.test(pence.at16000) && !/That is what you told us/.test(pence.at16001));
+
+  /* Same defect on the income axis, where it corrupted the OPENING state: a
+     household answering £1,199.50 opened one pound past the Warm Home Discount
+     cliff with "Back to the start" greyed out, i.e. the panel calling a
+     position past a cliff the user's own. */
+  await toResults(page, { age: 45, adults: 1, children: 0, income: 1199.5, savings: 0,
+    housing: 550, checks: ['hasDisabilityOrHealthCondition'] });
+  const opened = await page.evaluate(() => ({
+    slider: Number(document.getElementById('exploreSlider').value),
+    readout: document.getElementById('exploreReadout').textContent.replace(/\s+/g, ' ').trim(),
+    headline: (document.querySelector('.results-summary .text-4xl') || {}).textContent
+  }));
+  console.log('  £1,199.50 opens at ' + opened.slider + ', headline ' + opened.headline);
+  check('A pence income opens the panel exactly where the household stands',
+    opened.slider === 1199.5, 'got ' + opened.slider);
+  check('and shows the headline figure for it',
+    opened.readout.indexOf((opened.headline || '').trim()) !== -1, opened.readout.slice(0, 140));
+  check('and does not open one pound past a cliff calling it your answer',
+    !/no longer be listed/.test(opened.readout), opened.readout.slice(0, 140));
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== P3. POINTER BOOKKEEPING =====\n');
+
+  /* The touch guard records the value before the native control jumps. It used
+     to re-arm on every pointerdown, so the SECOND finger of a two-finger
+     gesture recorded the already-jumped value and the guard put back the wrong
+     number. Dispatched rather than gestured, because the browser's own pinch
+     handling differs per engine and this is about the bookkeeping. */
+  await toResults(page, {});
+  const pointers = await page.evaluate(() => {
+    const el = document.getElementById('exploreSlider');
+    const pd = id => el.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', pointerId: id, bubbles: true }));
+    const pc = id => el.dispatchEvent(new PointerEvent('pointercancel', { pointerType: 'touch', pointerId: id, bubbles: true }));
+    const pu = id => el.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', pointerId: id, bubbles: true }));
+    const jump = v => { el.value = String(v); el.dispatchEvent(new Event('input', { bubbles: true })); };
+    const reset = () => { el.value = '1100'; el.dispatchEvent(new Event('input', { bubbles: true })); };
+    const out = {};
+    reset(); pd(1); jump(3500); pd(2); pc(1); pc(2); out.twoFinger = el.value;
+    reset(); pd(3); jump(4800); pc(3); out.oneFinger = el.value;
+    reset();
+    el.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'mouse', pointerId: 9, bubbles: true }));
+    jump(2000);
+    el.dispatchEvent(new PointerEvent('pointercancel', { pointerType: 'mouse', pointerId: 9, bubbles: true }));
+    out.mouse = el.value;
+    reset(); pd(4); jump(6000); pu(4); pc(4); out.afterUp = el.value;
+    return out;
+  });
+  console.log('  ' + JSON.stringify(pointers));
+  check('A second finger does not re-record the already-jumped value',
+    pointers.twoFinger === '1100', 'got ' + pointers.twoFinger);
+  check('A single cancelled touch is still put back',
+    pointers.oneFinger === '1100', 'got ' + pointers.oneFinger);
+  check('A mouse press is left alone — click-to-jump is correct slider behaviour',
+    pointers.mouse === '2000', 'got ' + pointers.mouse);
+  check('A stray cancel after the finger lifted cannot resurrect an old value',
+    pointers.afterUp === '6000', 'got ' + pointers.afterUp);
 
   /* ---------------------------------------------------------------- */
   console.log('\n===== Q. THE DEPRIVATION WARNING DOES NOT ACCUSE ANYONE ON SIGHT =====\n');
