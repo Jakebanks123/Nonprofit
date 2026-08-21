@@ -9,7 +9,7 @@ const ctx = { console, setTimeout, clearTimeout, fetch: undefined,
 ctx.globalThis = ctx;
 vm.createContext(ctx);
 vm.runInContext(
-  ['data/postcodes.js', 'data/schemes.js', 'app.js']
+  ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
     .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n;\n')
   + '\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS });',
   ctx, { filename: 'app-combined.js' });
