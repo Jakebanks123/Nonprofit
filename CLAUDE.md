@@ -49,12 +49,17 @@ Read these before starting work. They are in the repo root.
 > is nothing for them to apply to. Everything in **Rules**, **Workflow**,
 > **Reviewing** and **Not yet** does apply now.
 >
-> To run the checks today: `npm test`. It now exits non-zero when the checks
-> fail, so a red run means something is genuinely wrong — do not wave it
-> through. (It previously exited 0 regardless, which made the suite incapable
-> of failing; fixed 19 Aug 2026.) `npm test` covers the maths and edge-case
-> suites only — the browser tests in `verify-ui.js`, `verify-keyboard.js` and
-> `test.js` must still be run by hand.
+> To run the checks today: `npm test`. It runs all five suites — the maths and
+> edge-case suites in plain Node, plus `verify-ui.js`, `verify-keyboard.js` and
+> `test.js` in a real browser — in about five seconds. Playwright is a dev
+> dependency; after `npm install` it needs its browser once, via
+> `npx playwright install chromium`.
+>
+> Every suite exits non-zero when it finds something, so a red run means
+> something is genuinely wrong — do not wave it through. That was not always
+> true: the maths suites always exited 0 until 19 Aug 2026, and the three
+> browser suites until 21 Aug 2026, which made both incapable of failing. If
+> you add a suite, make sure it can fail before you fold it in.
 
 - Next.js (App Router), TypeScript, React
 - Tailwind for styling
