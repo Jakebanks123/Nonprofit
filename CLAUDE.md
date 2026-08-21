@@ -38,10 +38,15 @@ Read these before starting work. They are in the repo root.
 
 > **Note on the sections below.** They describe the intended Next.js / Prisma /
 > Doppler / Vercel setup. The project is not there yet — right now it is a
-> static site (`index.html` plus `app.js`, `data/`, and Tailwind-generated
-> `dist/style.css`) with no backend and no database. There is now a small
-> build step: `npm run build` compiles `src/input.css` into `dist/style.css`
-> via the Tailwind CLI — that's the only dependency in `package.json`.
+> static site with no backend and no database: `index.html` loads `data/`,
+> then `explore-core.js` (the re-evaluation engine behind the what-if panel),
+> then `explore-ui.js` (that panel's rendering and wiring), then `app.js`,
+> with Tailwind-generated `dist/style.css`. Load order matters and is
+> commented in `index.html`.
+>
+> There is a small build step: `npm run build` compiles `src/input.css` into
+> `dist/style.css` via the Tailwind CLI. `package.json` has two dev
+> dependencies now — the Tailwind CLI and Playwright.
 > `dist/style.css` must be committed in the same commit as whatever source
 > change produced it, never as a follow-up commit. Until the Next.js
 > migration happens, the stack-specific rules (migrations, server vs client
@@ -49,11 +54,15 @@ Read these before starting work. They are in the repo root.
 > is nothing for them to apply to. Everything in **Rules**, **Workflow**,
 > **Reviewing** and **Not yet** does apply now.
 >
-> To run the checks today: `npm test`. It runs all five suites — the maths and
-> edge-case suites in plain Node, plus `verify-ui.js`, `verify-keyboard.js` and
-> `test.js` in a real browser — in about five seconds. Playwright is a dev
-> dependency; after `npm install` it needs its browser once, via
-> `npx playwright install chromium`.
+> To run the checks today: `npm test`. It runs all six suites in about five
+> seconds — `verify-maths.cjs` and `verify-edgecases.cjs` in plain Node, and
+> `verify-ui.js`, `verify-keyboard.js`, `verify-explore.js` and `test.js` in a
+> real browser. Playwright is a dev dependency; after `npm install` it needs
+> its browser once, via `npx playwright install chromium`.
+>
+> `verify-explore.js` is the sixth suite, added 21 Aug 2026 with the what-if
+> panel. `README.md` and a few code comments still say "five suites" and "the
+> three Playwright suites" — they predate it; trust `package.json`.
 >
 > Every suite exits non-zero when it finds something, so a red run means
 > something is genuinely wrong — do not wave it through. That was not always
@@ -70,8 +79,21 @@ Read these before starting work. They are in the repo root.
 
 ## Commands
 
+What works today, on this static site:
+
+    npm test                       # all six suites, ~5s
+    npm run build                  # compile src/input.css -> dist/style.css
+    npm run watch                  # same, rebuilding on change
+    npx playwright install chromium   # once, after npm install
+
+There is no dev server and no `npm run lint`. Open `index.html` in a
+browser. Note that Node.js is not installed on either of his machines
+yet, so none of the above can be run locally until it is — see
+`PRIORITIES.md` housekeeping.
+
+After the Next.js migration, and not before:
+
     doppler run -- npm run dev     # start local dev server
-    npm run build                  # verify a production build
     npm run lint                   # lint
     npx prisma migrate dev         # apply a schema change locally
     npx prisma studio              # browse the local database
@@ -132,11 +154,19 @@ with a plan you think is wrong.
 2. Create a branch.
 3. State the plan; get approval.
 4. Implement in small commits.
-5. Run `npm run lint` and `npm run build`. Fix what breaks.
-6. Push, open a PR, and give him the preview URL.
-7. Tell him what specifically to click and check on the preview — not
-   "test it", but the two or three concrete things that could be
-   wrong.
+5. Run `npm test`. If you touched anything with a Tailwind class that
+   was not already in the build, run `npm run build` too and commit
+   `dist/style.css` in the same commit. Fix what breaks.
+6. Push the branch and open a PR rather than pushing to `main`. There
+   is no preview URL yet — Vercel isn't set up — so say which files
+   changed and what to open locally.
+7. Tell him what specifically to click and check — not "test it", but
+   the two or three concrete things that could be wrong.
+
+If you add a test suite, prove it can fail before folding it into
+`npm test`. Suites that always exited 0 have shipped twice here (the
+maths suites until 19 Aug 2026, the browser suites until 21 Aug), and
+both times the command looked thorough while checking nothing.
 
 ## Reviewing
 
