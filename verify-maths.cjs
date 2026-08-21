@@ -17,12 +17,12 @@ const ctx = { console, setTimeout, clearTimeout, fetch: undefined,
   AbortController: function () { this.abort = () => {}; this.signal = null; } };
 ctx.globalThis = ctx;
 vm.createContext(ctx);
-const combined = ['data/postcodes.js', 'data/schemes.js', 'app.js']
+const combined = ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
   .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8'))
   .join('\n;\n')
   + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS,
       ALL_ENGLAND_COUNCILS, ENGLAND_POSTCODE_DATA, matchOfflineCouncil,
-      resolveCouncilByName, sanitiseInput, gbp, RATES_TAX_YEAR, ukTaxYearOf, ratesStaleness });`;
+      resolveCouncilByName, sanitiseInput, gbp, evaluateAll, sweep, bisect, findCliffs, findNearMiss, SWEEP_AXES, RATES_TAX_YEAR, ukTaxYearOf, ratesStaleness });`;
 vm.runInContext(combined, ctx, { filename: 'app-combined.js' });
 const app = ctx;
 
@@ -474,6 +474,211 @@ check('CB: single earner £70k, 2 kids (50% clawback), via take-home fallback',
           + 'abolished on the same day as the April 2026 uprating.'
     });
   }
+}
+
+console.log('\n=========== CLIFF EDGES ===========\n');
+
+/* A "cliff" here means a point where a scheme STOPS APPLYING — not a point
+   where its amount steps down. The distinction is the whole feature and it is
+   easy to get backwards.
+
+   REAL RULE (reg 72, UC Regs 2013): capital between £6,000 and £16,000 is
+   converted to "tariff income" of £4.35 a month per £250 or part thereof.
+   Because of the "or part thereof" it is a staircase, not a slope: the award
+   is identical at £6,001 and £6,250, then drops £4.35 at £6,251. That is forty
+   drops between £6,000 and £16,000 and NOT ONE OF THEM is a cliff — the
+   claimant still qualifies on both sides of every one.
+
+   REAL RULE (reg 18, UC Regs 2013): capital ABOVE £16,000 disqualifies
+   outright. That IS a cliff, and it is the only one on this axis. */
+
+function cliffsOn(input, variable) {
+  return app.findCliffs(app.sanitiseInput(input), variable);
+}
+
+/* CASE A — the cliff exists and sits at exactly £16,000.
+   Hand-computed, single childless adult 25+, no income, no rent:
+   max award = standard allowance 424.90 only.
+   At £16,000 capital: tariff = ceil((16000-6000)/250) * 4.35 = 40 * 4.35
+   = 174.00. Award = 424.90 - 174.00 = 250.90.
+   At £16,001: reg 18 disqualifies. Award = nil. So the drop is £250.90. */
+{
+  const cliffs = cliffsOn(baseInput({ age: 35, monthlyIncome: 0, savings: 0 }), 'savings');
+  const uc = cliffs.filter(c => c.schemeId === 'universal-credit');
+  check('CLIFF: UC savings cliff count (£0 income)', uc.length, 1, 0,
+    'reg 18 is the only place UC eligibility ends on the savings axis');
+  check('CLIFF: UC savings cliff position (£0 income)', uc.length ? uc[0].at : null, 16000, 0,
+    'reg 18: capital ABOVE £16,000 disqualifies, so £16,000 itself still qualifies');
+  check('CLIFF: UC savings cliff size (£0 income)', uc.length ? uc[0].cashDrop : null, 250.90, 0.5,
+    'standard allowance 424.90 minus tariff income 40 * 4.35 = 174.00');
+}
+
+/* CASE B — the SAME cliff is much smaller once earnings taper the award.
+   Hand-computed, same household with £400/mo earnings and no work allowance
+   (childless, no LCW): 424.90 - (400 * 0.55) - 174.00 = 30.90.
+   A test that hardcodes one drop figure would be testing its fixture, not the
+   regulations. */
+{
+  const uc = cliffsOn(baseInput({ age: 35, monthlyIncome: 400, savings: 0 }), 'savings')
+    .filter(c => c.schemeId === 'universal-credit');
+  check('CLIFF: UC savings cliff size (£400/mo income)', uc.length ? uc[0].cashDrop : null, 30.90, 0.5,
+    '424.90 - 220.00 taper - 174.00 tariff = 30.90');
+}
+
+/* CASE C — above about £700/mo the award is already nil at £16,000, so there
+   is NOTHING LEFT TO LOSE and no cliff should be reported at all.
+   Hand-computed: 424.90 - (700 * 0.55 = 385.00) - 174.00 = -134.10, floored to
+   nil by Math.max(0, ...). Reporting a cliff here would tell someone they are
+   about to lose money they are not receiving. */
+{
+  const uc = cliffsOn(baseInput({ age: 35, monthlyIncome: 700, savings: 0 }), 'savings')
+    .filter(c => c.schemeId === 'universal-credit' && c.cashDrop > 0.005);
+  check('CLIFF: no UC cash cliff at £700/mo income', uc.length, 0, 0,
+    'award already nil at £16,000, so crossing it loses nothing');
+}
+
+/* CASE D — the forty tariff steps are NOT cliffs.
+   This is the regression guard for the staircase. If anyone reimplements
+   cliff detection as "a big drop between samples", the £4.35 steps start
+   being reported and this fails. */
+{
+  const inRange = cliffsOn(baseInput({ age: 35, monthlyIncome: 0, savings: 0 }), 'savings')
+    .filter(c => c.at >= 6000 && c.at < 16000);
+  check('CLIFF: no cliffs between £6,000 and £16,000', inRange.length, 0, 0,
+    'reg 72 tariff income steps the AMOUNT down 40 times; eligibility is unbroken throughout');
+}
+
+/* CASE E — cliffs in schemes that pay nothing into a bank account still count.
+   Warm Home Discount is kind:"bill", so it contributes £0 to the cash total
+   and is invisible to any cash-only detector. Its income test is £1,200/mo.
+   Hand-computed: eligible at £1,199, not at £1,200 — so the boundary the
+   bisection should pin is £1,199. */
+{
+  const whd = cliffsOn(
+    baseInput({ age: 35, monthlyIncome: 0, hasDisabilityOrHealthCondition: true, receivingUC: true }),
+    'monthlyIncome'
+  ).filter(c => c.schemeId === 'warm-home-discount');
+  check('CLIFF: Warm Home Discount income cliff found', whd.length, 1, 0,
+    'kind:"bill" — worth £150 but adds £0 to the cash line, so a cash-only sweep misses it');
+  check('CLIFF: Warm Home Discount income cliff position', whd.length ? whd[0].at : null, 1199, 1,
+    'last qualifying pound of monthly income');
+}
+
+/* CASE F — bisection must refuse a non-monotone predicate rather than guess.
+   REAL RULE: UC eligibility against AGE flips twice — the standard allowance
+   steps up at 25 (schemes.js), and pension age ends UC entirely at 66. A
+   bisection assumes exactly one crossing; given two it returns whichever half
+   it happened to halve into, stated with full confidence. It must return null. */
+{
+  const boundary = app.bisect(
+    app.sanitiseInput(baseInput({ age: 35, monthlyIncome: 620, savings: 0 })),
+    'age', 16, 120,
+    ({ national }) => national.some(r => r.scheme.id === 'universal-credit')
+  );
+  check('CLIFF: bisect refuses non-monotone UC-vs-age', boundary, null, 0,
+    'eligibility flips at 25 and again at 66 — no single boundary exists to return');
+}
+
+/* CASE G — near-miss is gated on the WHOLE HOUSEHOLD, annualised.
+
+   The first version gated on cash only. Every scheme with an income cliff to
+   be near — Healthy Start, Warm Home Discount, Council Tax Reduction — is
+   kind:"in-kind" or kind:"bill" and contributes £0 to a cash total, while
+   Universal Credit, Pension Credit and Child Benefit all taper and have no
+   cliff at all. So the gate could never be satisfied by anything and the
+   feature was silently inert: 216 households produced 0 cards.
+
+   G1 — POSITIVE. Without a case that MUST produce a card, "no card" tests
+   pass whether the code works or is dead.
+   REAL RULE: on Universal Credit, Healthy Start needs monthly earnings of
+   £408 or less, and is worth £4.25/wk.
+   Hand-computed, single adult 35 with one child under 4, £415/mo, no rent:
+     card    = 4.25 * 52          = £221.00/yr
+     income  = £7/mo * 12         = £84.00/yr
+     UC does NOT change: max award 424.90 + 303.94 = 728.84, and the work
+     allowance with no housing costs is £710, so £415 and £408 are both under
+     it and neither is tapered.
+     net = 221.00 - 84.00 = £137.00/yr better off. */
+{
+  const m = app.findNearMiss(baseInput({
+    age: 35, children: 1, monthlyIncome: 415, receivingUC: true, pregnantOrChildUnder4: true
+  })).filter(x => x.schemeId === 'healthy-start');
+  check('NEAR-MISS: Healthy Start card IS produced at £415/mo', m.length, 1, 0,
+    'the cap is £408, so this household is £7/mo above it');
+  check('NEAR-MISS: Healthy Start target income', m.length ? m[0].targetValue : null, 408, 0,
+    'highest income that still qualifies — not £409, the first that does not');
+  check('NEAR-MISS: Healthy Start net gain', m.length ? m[0].netGainAnnual : null, 137.00, 0.5,
+    '£221/yr card less £84/yr of income; UC unchanged, both sides under the £710 work allowance');
+}
+
+/* G2 — POSITIVE, and the reason the household total is the right unit.
+   REAL RULE: Warm Home Discount is £150 and cuts off at £1,200/mo plus £200
+   per child, so £1,400 for one child — eligible at £1,399.
+   Hand-computed, single adult 35, one child, £1,405/mo, no rent:
+     discount = £150.00
+     income   = £6/mo * 12 = £72.00/yr
+     UC DOES change here, because £1,405 is above the £710 work allowance:
+       at £1,405: 728.84 - (1405-710)*0.55 = 728.84 - 382.25 = £346.59
+       at £1,399: 728.84 - (1399-710)*0.55 = 728.84 - 378.95 = £349.89
+       difference = £3.30/mo = £39.60/yr
+     net = 150.00 + 39.60 - 72.00 = £117.60/yr better off.
+   A one-scheme comparison would have said £150 - £72 and missed that the UC
+   taper hands back 55p of every pound of income given up. */
+{
+  const m = app.findNearMiss(baseInput({
+    age: 35, children: 1, monthlyIncome: 1405, receivingUC: true
+  })).filter(x => x.schemeId === 'warm-home-discount');
+  check('NEAR-MISS: Warm Home Discount card IS produced at £1,405/mo', m.length, 1, 0,
+    'cap is 1200 + 200 per child = £1,400, so £1,399 is the last qualifying pound');
+  check('NEAR-MISS: Warm Home Discount target income', m.length ? m[0].targetValue : null, 1399, 0,
+    'off-by-one guard: searching from the qualifying end, not the user\'s own income');
+  check('NEAR-MISS: Warm Home Discount net gain', m.length ? m[0].netGainAnnual : null, 117.60, 0.5,
+    '£150 discount plus £39.60/yr of UC taper relief, less £72/yr of income');
+}
+
+/* G3 — NEGATIVE. The same scheme must NOT produce a card when the gap is real.
+   REAL RULE as G1. Hand-computed, £500/mo: the gap is £92/mo = £1,104/yr
+   against a £221/yr card, so £883/yr WORSE off. */
+{
+  const misses = app.findNearMiss(baseInput({
+    age: 30, children: 1, monthlyIncome: 500, receivingUC: true, pregnantOrChildUnder4: true
+  }));
+  check('NEAR-MISS: no Healthy Start card at £500/mo', 
+    misses.filter(m => m.schemeId === 'healthy-start').length, 0, 0,
+    'losing £1,104/yr of income to gain a £221/yr card is £883/yr worse off');
+  check('NEAR-MISS: no card anywhere is a net loss',
+    misses.filter(m => !(m.netGainAnnual > 0)).length, 0, 0,
+    'reads netGainAnnual explicitly — a renamed field must fail here, not pass silently');
+}
+
+/* CASE H — a tapered NON-CASH scheme running out is not a cliff either.
+   Pension-age Council Tax Reduction is kind:"bill", so it contributes nothing
+   to the cash total and cannot be screened by a cash test. It is still
+   tapered, so it still reaches nil gradually.
+   REAL RULE (CTR (Prescribed Requirements) (England) Regs 2012): applicable
+   amount = the Pension Credit guarantee level, £238.00/wk single, and the
+   bill is reduced by 20p for every £1 of weekly income above it.
+   Hand-computed for a £2,392/yr bill = £46.00/wk:
+     reduction hits nil when (income - 238) * 0.20 = 46, i.e. income = £468/wk
+     = £2,028/mo. At £2,027/mo the reduction is 46.00 - 45.95 = £0.05 a week,
+     which is £2.40 a year.
+   Warning someone they are about to lose £2.40 a year would be false alarm,
+   so no cliff may be reported on this axis. */
+{
+  const pensioner = baseInput({ age: 70, monthlyIncome: 600, councilTaxAnnual: 2392 });
+  const income = cliffsOn(pensioner, 'monthlyIncome')
+    .filter(c => c.schemeId === 'council-tax-support');
+  check('CLIFF: no pension-age CTR income cliff (taper reaches nil)', income.length, 0, 0,
+    'at £2,027/mo the reduction is £0.05/wk — running out is not falling off');
+
+  /* But the £16,000 capital rule IS a cliff for the same household, because
+     it ends eligibility outright while a real reduction is still in payment. */
+  const capital = cliffsOn(pensioner, 'savings')
+    .filter(c => c.schemeId === 'council-tax-support');
+  check('CLIFF: pension-age CTR savings cliff still found', capital.length, 1, 0,
+    'reg: capital above £16,000 disqualifies outright unless on Guarantee Credit');
+  check('CLIFF: pension-age CTR savings cliff position', capital.length ? capital[0].at : null, 16000, 0,
+    'last qualifying pound of capital');
 }
 
 console.log('\n=========== SUMMARY ===========\n');

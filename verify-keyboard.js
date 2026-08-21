@@ -9,7 +9,7 @@ const ctx = { console, setTimeout, clearTimeout, fetch: undefined,
 ctx.globalThis = ctx;
 vm.createContext(ctx);
 vm.runInContext(
-  ['data/postcodes.js', 'data/schemes.js', 'app.js']
+  ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
     .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n;\n')
   + '\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS });',
   ctx, { filename: 'app-combined.js' });
@@ -42,7 +42,7 @@ const problems = [];
   });
 
   console.log('\n===== KEYBOARD-ONLY NAVIGATION =====\n');
-  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+  const browser = await chromium.launch();
   const page = await browser.newPage();
   page.on('pageerror', e => problems.push('PAGE ERROR: ' + e.message));
   await page.goto(fileUrl);
@@ -91,15 +91,36 @@ const problems = [];
   const ring = await page.evaluate(() => {
     const h = document.getElementById('stepHeading');
     const cs = getComputedStyle(h);
-    return { outline: cs.outlineStyle + ' ' + cs.outlineWidth, isFocused: document.activeElement === h };
+    return { outlineStyle: cs.outlineStyle, outlineWidth: cs.outlineWidth, isFocused: document.activeElement === h };
   });
   console.log('Step heading focus ring:', JSON.stringify(ring));
-  if (ring.isFocused && ring.outline !== 'none 0px') {
+
+  /* app.js moves focus to the step heading after every step change, so a
+     screen reader announces the new step. The ring check below measured that
+     focus but only ever complained about how it LOOKED, so removing the
+     focus() call entirely left this suite green. Assert the behaviour, not
+     just its styling. */
+  if (!ring.isFocused) {
+    problems.push('Focus is not moved to the step heading — screen readers will not announce the new step');
+  }
+  /* outline-style decides whether a ring is drawn; outline-width is whatever
+     the stylesheet last declared and is meaningless when the style is 'none'.
+     Comparing the two joined together against 'none 0px' reported a ring on
+     every run, because :focus-visible leaves the width at 3px while setting
+     the style to none. */
+  if (ring.isFocused && ring.outlineStyle !== 'none') {
     problems.push('Visible focus outline drawn around step heading after mouse click (cosmetic: shows a box around the title)');
   }
 
   await browser.close();
   console.log('\n===== SUMMARY =====\n');
-  if (!problems.length) console.log('No problems detected.');
-  else problems.forEach((p, i) => console.log(`${i + 1}. ${p}`));
+  if (!problems.length) {
+    console.log('No problems detected.');
+  } else {
+    problems.forEach((p, i) => console.log(`${i + 1}. ${p}`));
+    /* Exit non-zero so `npm test` can fail. Without this the suite printed its
+       findings and still reported success — the same flaw the maths suites had
+       until 19 Aug 2026. */
+    process.exitCode = 1;
+  }
 })();

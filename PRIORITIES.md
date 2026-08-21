@@ -11,6 +11,22 @@ That makes everything below cheap to fix now and expensive to fix later.
 
 ## Recently completed
 
+- **All five test suites now run from `npm test`** (~5s). Playwright is a dev
+  dependency, and `verify-ui.js`, `verify-keyboard.js` and `test.js` are folded
+  in. Three things had to be fixed to make that mean anything:
+  - All three browser suites hard-coded `executablePath: '/opt/pw-browsers/chromium'`,
+    a path from the container they were written in. They now let Playwright
+    resolve its own browser, which honours `PLAYWRIGHT_BROWSERS_PATH`.
+  - None of them set a non-zero exit code, so they could not fail — the same
+    flaw the maths suites had until 19 Aug. `verify-keyboard.js` was reporting
+    a problem and exiting 0.
+  - `verify-keyboard.js` reported a phantom focus-ring problem on every run: it
+    compared `outlineStyle + ' ' + outlineWidth` against `'none 0px'` and got
+    `'none 3px'`, because `:focus-visible` leaves the width set while the style
+    is `none`. No ring was ever drawn. It also measured whether focus moved to
+    the step heading without asserting it, so deleting that `focus()` call left
+    the suite green; it now asserts it.
+  Each suite was verified to fail on a deliberately introduced regression.
 - **Council Tax Reduction no longer uses an invented national formula.** Split
   in two, because the honest answer is different for each half of its users:
   - **Working-age** (most users): no accurate UK-wide formula exists — each of
@@ -73,15 +89,6 @@ generated text was off, and let that tell you how much work the other eleven are
 ---
 
 ## Tier 2 — before it goes anywhere near the public
-
-### 2. Browser tests aren't in `npm test`
-`npm test` runs the maths and edge-case suites only; Playwright isn't a dev
-dependency. That is exactly why the council-name typing bug shipped — it was a
-UI bug, and no UI test ran. Add Playwright and fold `verify-ui.js`,
-`verify-keyboard.js` and `test.js` into `npm test`. (Also true for today's
-council tax change — the new question was checked by hand-loading
-`renderIncomeStep()` in Node, not with a real browser test, because Playwright
-isn't installed here either.)
 
 ### 3. Agree a review step
 Two people now push to `main`. The four calculation errors found on 18 August
