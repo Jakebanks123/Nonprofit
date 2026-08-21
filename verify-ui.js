@@ -117,8 +117,14 @@ async function fillFlow(page, o) {
   const rAfter = await fillFlow(page, { council: 'Manchester', income: 400, housing: 600 });
   const after = rAfter.summary.match(/£[\d,]+/)[0];
   // Section headings are real <h2> elements now, not styled divs.
+  // Found by name, not by position: this used to take the LAST <h2> on the
+  // page, which quietly stopped meaning "the council section" the moment
+  // anything was added below it (the what-if panel, 21 Aug). Picking it by
+  // name also tightens the check — if the section disappeared altogether this
+  // now reads '' and fails, where the positional version would have happily
+  // read whatever heading had taken its place.
   const headings = await page.$$eval('main h2', els => els.map(e => e.textContent.trim()));
-  const localHeading = headings[headings.length - 1] || '';
+  const localHeading = headings.find(h => h.startsWith('From your council')) || '';
   console.log(`Re-ran with Manchester: ${before} -> ${after}, local section = ${localHeading}`);
   if (!localHeading.includes('Manchester')) problems.push('Changing council did not update local section heading');
 

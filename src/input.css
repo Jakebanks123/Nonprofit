@@ -140,6 +140,92 @@
 
   button:not(:disabled) { cursor: pointer; }
 
+  /* ------------------------------------------------------------------
+     RANGE INPUT — the "what if" slider (explore-ui.js).
+
+     Written as element-level CSS rather than utilities on purpose. The
+     track and thumb are vendor pseudo-elements, and this project's single
+     worst footgun is a class that is not in the compiled dist/style.css
+     failing silently with no error. There is exactly one range input in
+     the app, so an element selector cannot collide with anything and
+     cannot be dropped by the build.
+
+     Contrast: the track is --color-line-strong (3.37:1 on white) because
+     a control a user operates must clear 3:1 for WCAG 2.2 SC 1.4.11. The
+     filled portion and the thumb are --color-brand-600 (7.81:1). Do not
+     swap either for --color-line, which is decorative at 1.33:1.
+     ------------------------------------------------------------------ */
+  input[type="range"] {
+    appearance: none;
+    -webkit-appearance: none;
+    /* A 24px thumb needs room, and the padding doubles as the touch
+       target: 44px tall in total, which is WCAG 2.2 SC 2.5.8 Target Size
+       with margin to spare on a phone. */
+    padding-block: --spacing(2.5);
+    background: transparent;
+    /* Without this, dragging the thumb on a touchscreen scrolls the page
+       instead and the slider is unusable on the devices this audience is
+       most likely to be holding. */
+    touch-action: none;
+  }
+
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px;
+    border-radius: 999px;
+    background:
+      linear-gradient(to right,
+        var(--color-brand-600) 0 var(--range-progress, 0%),
+        var(--color-line-strong) var(--range-progress, 0%) 100%);
+  }
+
+  input[type="range"]::-moz-range-track {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-line-strong);
+  }
+
+  /* Firefox fills the track for us, so the gradient above is Chromium and
+     WebKit only and this keeps the two looking the same. */
+  input[type="range"]::-moz-range-progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-brand-600);
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    height: 24px;
+    width: 24px;
+    /* Centres a 24px thumb on a 6px track. */
+    margin-top: -9px;
+    border: 3px solid var(--color-surface);
+    border-radius: 999px;
+    background: var(--color-brand-600);
+  }
+
+  input[type="range"]::-moz-range-thumb {
+    height: 24px;
+    width: 24px;
+    border: 3px solid var(--color-surface);
+    border-radius: 999px;
+    background: var(--color-brand-600);
+  }
+
+  /* Windows High Contrast discards background-color on these pseudo
+     elements, which would leave the thumb and track invisible. */
+  @media (forced-colors: active) {
+    input[type="range"]::-webkit-slider-runnable-track,
+    input[type="range"]::-moz-range-track {
+      background: CanvasText;
+    }
+    input[type="range"]::-webkit-slider-thumb,
+    input[type="range"]::-moz-range-thumb {
+      background: CanvasText;
+      border-color: Canvas;
+    }
+  }
+
   /* Someone using this is likely to be asked to bring their figures to a
      council appointment or a Citizens Advice session. There is no
      persistence anywhere in this app — refresh and it is gone — so being
@@ -166,6 +252,16 @@
       padding: 0 !important;
     }
     li {
+      break-inside: avoid;
+    }
+    /* The what-if slider is a control, and a printed one is a dead control.
+       The chart and the list of where support stops are the parts worth
+       carrying to a Citizens Advice appointment, so they stay. */
+    #exploreSlider,
+    #exploreSliderHint {
+      display: none !important;
+    }
+    #exploreChart {
       break-inside: avoid;
     }
     /* A printed link is useless unless it says where it goes. */

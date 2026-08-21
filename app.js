@@ -408,8 +408,12 @@ function sanitiseInput(raw) {
    tools re-run it hundreds of times and two copies of this loop would be two
    things to keep in step. This is the only caller that renders. */
 function computeResults() {
-  const { national, local } = evaluateAll(sanitiseInput(state.input));
-  return { nationalResults: national, localResults: local };
+  const input = sanitiseInput(state.input);
+  const { national, local } = evaluateAll(input);
+  /* `input` is returned, not re-derived by the caller: the explore panel
+     sweeps from exactly the figures these results were computed from, so
+     sanitising twice would be two chances to disagree. */
+  return { input, nationalResults: national, localResults: local };
 }
 
 /* The old version added every scheme's monthly value into one pot and
@@ -665,7 +669,7 @@ function renderStaleRatesNotice(context) {
 }
 
 function renderResultsStep() {
-  const { nationalResults, localResults } = computeResults();
+  const { input, nationalResults, localResults } = computeResults();
 
   if (nationalResults.length === 0 && localResults.length === 0) return renderNoResults();
 
@@ -715,6 +719,7 @@ function renderResultsStep() {
     ${renderGroup("You might qualify for these", "We are less sure about these, because they depend on things we did not ask about. One of them could still be worth more than the ones above, so it is worth checking them too.", alsoCheck, true)}
     ${renderGroup("Not money, but worth having", "These do not pay you cash, so they are not in the figure above.", notMoney, true)}
     ${renderLocalSection(localResults)}
+    ${renderExplorePanel(input, nationalResults)}
     ${renderResultsActions()}
   `;
 }
@@ -774,6 +779,10 @@ function render() {
        step 1 without resetting is both simpler and what people actually want. */
     document.getElementById("restartBtn").addEventListener("click", () => goTo(0));
     document.getElementById("printBtn").addEventListener("click", () => window.print());
+    /* No-op unless renderExplorePanel() actually emitted a panel. It reuses
+       the input that panel was built from rather than taking one, so the
+       wiring can never be looking at different figures than the chart. */
+    wireExplorePanel();
   }
 
   const heading = document.getElementById("stepHeading");
