@@ -280,9 +280,31 @@
     }
     /* The what-if slider is a control, and a printed one is a dead control.
        The chart and the list of where support stops are the parts worth
-       carrying to a Citizens Advice appointment, so they stay. */
+       carrying to a Citizens Advice appointment, so they stay.
+
+       The READOUT does not stay, and this was a real bug rather than a tidy-up.
+       Hiding the slider but printing its output meant a page that had been
+       dragged to £4,000 came off the printer showing "£195 a month" in large
+       type, six inches under a headline saying £1,605 — with the control that
+       explained the difference hidden, and the whole thing on paper at a
+       Citizens Advice appointment where nobody can drag it back. This panel
+       had the same fault three times on screen (a rounded grid, a rounded
+       baseline, a tolerance window) and each time it was the same fault: two
+       different figures for one household, both looking authoritative. Paper
+       is the worst place for the fourth.
+
+       The card wrapper goes rather than #exploreReadout itself, or the border
+       and padding print as an empty box. */
     #exploreSlider,
-    #exploreSliderHint {
+    #exploreSliderHint,
+    #exploreReadoutCard {
+      display: none !important;
+    }
+    /* Same reason: the cursor sits wherever the slider was left. The start
+       mark stays — it is display:none while the thumb is still on it, and once
+       the thumb has moved it marks the household's REAL answer, which is the
+       one thing on this chart worth a line on paper. */
+    #exploreCursor {
       display: none !important;
     }
     #exploreChart {

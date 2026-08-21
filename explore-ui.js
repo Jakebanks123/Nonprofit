@@ -595,7 +595,7 @@ function renderExploreBody(input) {
     ${offRange}
     ${chartFrame}
 
-    <div class="mt-4 rounded-field border border-line bg-canvas p-4">
+    <div class="mt-4 rounded-field border border-line bg-canvas p-4" id="exploreReadoutCard">
       <div id="exploreReadout">${renderExploreReadout(data, input, baseline, startValue, value)}</div>
       <p class="mt-3">
         <button class="rounded-full border border-line-strong bg-surface px-4 py-2 text-base font-medium whitespace-nowrap text-brand-800 disabled:opacity-50"

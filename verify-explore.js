@@ -727,6 +727,93 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
       /£8,000 more in savings/.test(noCashDrag), noCashDrag.slice(0, 200));
   }
 
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== R2. WHAT GOES ON PAPER =====\n');
+
+  /* The printed page is where this panel is most dangerous, because the
+     control that explains it is hidden and nobody can drag it back. A page
+     dragged to £4,000 used to print "£195 a month" in large type under a
+     headline saying £1,605. Same fault as the rounded grid, the rounded
+     baseline and the tolerance window: two figures for one household, both
+     looking authoritative — except on paper, at an advice appointment.
+
+     What must survive is the chart, the axis it is drawn against, the list of
+     where support stops, and a mark at the household's REAL answer. */
+  await toResults(page, {});
+  await setSlider(page, 4000);
+  await page.emulateMedia({ media: 'print' });
+  const printed = await page.evaluate(() => {
+    const shown = id => {
+      const el = document.getElementById(id);
+      if (!el) return 'absent';
+      return getComputedStyle(el).display === 'none' ? 'hidden' : 'shown';
+    };
+    /* innerText, not textContent: it respects display:none, which is the
+       whole question here. */
+    const panel = document.getElementById('explorePanel');
+    return {
+      slider: shown('exploreSlider'), hint: shown('exploreSliderHint'),
+      readoutCard: shown('exploreReadoutCard'), cursor: shown('exploreCursor'),
+      chart: shown('exploreChart'), startMark: shown('exploreStartMark'),
+      ink: (panel.innerText || '').replace(/\s+/g, ' ').trim()
+    };
+  });
+  await page.emulateMedia({ media: 'screen' });
+  console.log('  ' + JSON.stringify({ slider: printed.slider, readoutCard: printed.readoutCard,
+    cursor: printed.cursor, chart: printed.chart, startMark: printed.startMark }));
+  console.log('  ink: ' + printed.ink.slice(0, 150));
+
+  check('Print does not carry the hypothetical figure',
+    printed.readoutCard === 'hidden', 'readout card was ' + printed.readoutCard);
+  check('and no words from the hypothetical readout reach the paper',
+    !/If your monthly income were/.test(printed.ink) && !/Back to the start/.test(printed.ink),
+    printed.ink.slice(0, 200));
+  check('and the chart does not point at it either',
+    printed.cursor === 'hidden', 'cursor was ' + printed.cursor);
+  check('The chart itself still prints', printed.chart === 'shown');
+  check('marked at the household\'s real answer',
+    printed.startMark === 'shown', 'start mark was ' + printed.startMark);
+  check('the axis it is drawn against is still named',
+    /Monthly income/.test(printed.ink), printed.ink.slice(0, 200));
+  check('and the "where support stops" section still prints',
+    /Where support stops/.test(printed.ink), printed.ink.slice(0, 300));
+
+  /* On the income axis this household has no cliffs, so the section above
+     prints its "nothing stops here" wording. The cliff list proper is on the
+     savings axis, and it is the single most useful thing on the printed page —
+     check it survives with the pound figure intact. */
+  await page.click('[data-explore-axis="savings"]');
+  await setSlider(page, 19000);
+  await page.emulateMedia({ media: 'print' });
+  const printedCliffs = await page.evaluate(() => ({
+    ink: (document.getElementById('explorePanel').innerText || '').replace(/\s+/g, ' ').trim(),
+    readoutCard: getComputedStyle(document.getElementById('exploreReadoutCard')).display
+  }));
+  await page.emulateMedia({ media: 'screen' });
+  console.log('  savings axis, dragged to £19,000, printed:');
+  console.log('    ' + printedCliffs.ink.slice(0, 200));
+  check('The cliff and what it was worth both reach the paper',
+    /Universal Credit/.test(printedCliffs.ink)
+      && /stops once your savings go above/.test(printedCliffs.ink)
+      && /£16,000/.test(printedCliffs.ink),
+    printedCliffs.ink.slice(0, 300));
+  check('and the hypothetical is still not on it',
+    printedCliffs.readoutCard === 'none' && !/If your savings were/.test(printedCliffs.ink),
+    printedCliffs.ink.slice(0, 200));
+
+  /* Untouched, the cursor is the only marker (the start mark hides beneath it),
+     so hiding the cursor must not leave a chart with a stray line on it. */
+  await toResults(page, {});
+  await page.emulateMedia({ media: 'print' });
+  const clean = await page.evaluate(() => ({
+    cursor: getComputedStyle(document.getElementById('exploreCursor')).display,
+    mark: document.getElementById('exploreStartMark').style.display
+  }));
+  await page.emulateMedia({ media: 'screen' });
+  check('An undragged panel prints a chart with no marker at all',
+    clean.cursor === 'none' && clean.mark === 'none',
+    JSON.stringify(clean));
+
   await browser.close();
 
   /* ---------------------------------------------------------------- */
