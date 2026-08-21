@@ -201,6 +201,29 @@ function findCliffs(input, variable, range) {
   return cliffs;
 }
 
+/* Total annual worth of every national scheme, cash or not.
+
+   sumEstimates() in app.js deliberately refuses to produce a number like this,
+   and it is right to: a council tax reduction is not money in a bank account
+   and a food card is not either, so adding them into one headline figure
+   overstates what someone actually receives. That objection is about what gets
+   PRINTED. This total is never printed. It exists only to answer an internal
+   yes/no question — would this household be better off at that income? — and
+   answering it needs the bill and in-kind schemes counted, because they are
+   the only ones with income cliffs to be near. Universal Credit, Pension
+   Credit and Child Benefit all taper.
+
+   Gating on cash alone was the bug: every scheme with a cliff was worth
+   exactly £0 to the gate, so no card could ever pass it. Do not "simplify"
+   this back to cashMonthlyAt, and do not surface the figure. */
+function householdValueAnnual(national) {
+  let total = 0;
+  national.forEach(({ result }) => {
+    total += annualisedValue(result.amount);
+  });
+  return total;
+}
+
 /* Near-miss: the smallest income change that leaves the household better off
    overall.
 
@@ -221,36 +244,54 @@ const NEAR_MISS_INCOME_LIMIT = 500;
 
 function findNearMiss(input) {
   const base = sanitiseInput(input);
-  const baseline = cashMonthlyAt(evaluateAll(base).national);
+  const baseline = householdValueAnnual(evaluateAll(base).national);
   const currentIncome = base.monthlyIncome;
   const ineligible = NATIONAL_SCHEMES.filter(s => !s.evaluate(base).eligible);
   const found = [];
 
   ineligible.forEach(scheme => {
+    /* `from` must be the END WHERE THE SCHEME APPLIES, because bisect returns
+       the last value that behaves like `from`. Searching downwards from the
+       user's own income returned the lowest income at which they STILL did not
+       qualify — £1,400 for a one-child Warm Home Discount household whose real
+       cut-off is £1,399 — and then priced the move at that same non-qualifying
+       point. Searching upwards from the low end returns the highest income
+       that still qualifies, which is the number a person can act on. */
     const lo = Math.max(0, currentIncome - NEAR_MISS_INCOME_LIMIT);
-    const boundary = bisect(base, "monthlyIncome", currentIncome, lo,
+    const target = bisect(base, "monthlyIncome", lo, currentIncome,
       ({ national }) => national.some(r => r.scheme.id === scheme.id));
-    if (boundary == null) return;
+    if (target == null) return;
 
-    const delta = currentIncome - boundary;
+    const delta = currentIncome - target;
     if (delta <= 0 || delta > NEAR_MISS_INCOME_LIMIT) return;
 
-    // Would the household actually be better off there? Usually not: dropping
-    // income to gain a benefit is only worth it when the benefit is worth more
-    // than the income given up, which is rare and must be proven per case.
-    const atTarget = cashMonthlyAt(evaluateAll(cloneWith(base, "monthlyIncome", boundary)).national);
-    const netGain = atTarget - baseline - delta;
+    /* Is the household actually better off there? Usually not — you give up a
+       pound of income to gain something worth less than a pound. Everything is
+       annualised so a £150 one-off discount and £18.42 a month of food card
+       can be weighed against £7 a month of income on the same scale.
+
+       Where Universal Credit is in payment the true cost is lower than it
+       looks, because its 55% taper hands back 55p of every pound of income
+       given up. That is not a fudge; it is what the household actually
+       experiences, and it is exactly why the comparison has to be made on the
+       whole household rather than one scheme at a time. */
+    const atTarget = householdValueAnnual(
+      evaluateAll(cloneWith(base, "monthlyIncome", target)).national);
+    const netGain = atTarget - baseline - delta * 12;
     if (netGain <= 0) return;
 
+    /* delta and target are both returned so the card can be worded as an
+       observation — "you are £7 a month above the limit for this" — rather
+       than as an instruction to go and earn less. */
     found.push({
       schemeId: scheme.id,
       name: scheme.name,
       variable: "monthlyIncome",
-      targetValue: boundary,
+      targetValue: target,
       delta,
-      netGain
+      netGainAnnual: netGain
     });
   });
 
-  return found.sort((a, b) => b.netGain - a.netGain);
+  return found.sort((a, b) => b.netGainAnnual - a.netGainAnnual);
 }

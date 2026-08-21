@@ -579,21 +579,76 @@ function cliffsOn(input, variable) {
     'eligibility flips at 25 and again at 66 — no single boundary exists to return');
 }
 
-/* CASE G — near-miss must be gated on the HOUSEHOLD TOTAL, not one scheme.
-   REAL RULE: Healthy Start cuts off at £408/mo. Someone on £500/mo with a
-   child under 4 on UC is £92 short of a card worth £18.42/mo. Recommending a
-   £92/mo income cut to gain £18.42/mo is a £883/yr net LOSS, so no card may
-   be produced for it. */
+/* CASE G — near-miss is gated on the WHOLE HOUSEHOLD, annualised.
+
+   The first version gated on cash only. Every scheme with an income cliff to
+   be near — Healthy Start, Warm Home Discount, Council Tax Reduction — is
+   kind:"in-kind" or kind:"bill" and contributes £0 to a cash total, while
+   Universal Credit, Pension Credit and Child Benefit all taper and have no
+   cliff at all. So the gate could never be satisfied by anything and the
+   feature was silently inert: 216 households produced 0 cards.
+
+   G1 — POSITIVE. Without a case that MUST produce a card, "no card" tests
+   pass whether the code works or is dead.
+   REAL RULE: on Universal Credit, Healthy Start needs monthly earnings of
+   £408 or less, and is worth £4.25/wk.
+   Hand-computed, single adult 35 with one child under 4, £415/mo, no rent:
+     card    = 4.25 * 52          = £221.00/yr
+     income  = £7/mo * 12         = £84.00/yr
+     UC does NOT change: max award 424.90 + 303.94 = 728.84, and the work
+     allowance with no housing costs is £710, so £415 and £408 are both under
+     it and neither is tapered.
+     net = 221.00 - 84.00 = £137.00/yr better off. */
+{
+  const m = app.findNearMiss(baseInput({
+    age: 35, children: 1, monthlyIncome: 415, receivingUC: true, pregnantOrChildUnder4: true
+  })).filter(x => x.schemeId === 'healthy-start');
+  check('NEAR-MISS: Healthy Start card IS produced at £415/mo', m.length, 1, 0,
+    'the cap is £408, so this household is £7/mo above it');
+  check('NEAR-MISS: Healthy Start target income', m.length ? m[0].targetValue : null, 408, 0,
+    'highest income that still qualifies — not £409, the first that does not');
+  check('NEAR-MISS: Healthy Start net gain', m.length ? m[0].netGainAnnual : null, 137.00, 0.5,
+    '£221/yr card less £84/yr of income; UC unchanged, both sides under the £710 work allowance');
+}
+
+/* G2 — POSITIVE, and the reason the household total is the right unit.
+   REAL RULE: Warm Home Discount is £150 and cuts off at £1,200/mo plus £200
+   per child, so £1,400 for one child — eligible at £1,399.
+   Hand-computed, single adult 35, one child, £1,405/mo, no rent:
+     discount = £150.00
+     income   = £6/mo * 12 = £72.00/yr
+     UC DOES change here, because £1,405 is above the £710 work allowance:
+       at £1,405: 728.84 - (1405-710)*0.55 = 728.84 - 382.25 = £346.59
+       at £1,399: 728.84 - (1399-710)*0.55 = 728.84 - 378.95 = £349.89
+       difference = £3.30/mo = £39.60/yr
+     net = 150.00 + 39.60 - 72.00 = £117.60/yr better off.
+   A one-scheme comparison would have said £150 - £72 and missed that the UC
+   taper hands back 55p of every pound of income given up. */
+{
+  const m = app.findNearMiss(baseInput({
+    age: 35, children: 1, monthlyIncome: 1405, receivingUC: true
+  })).filter(x => x.schemeId === 'warm-home-discount');
+  check('NEAR-MISS: Warm Home Discount card IS produced at £1,405/mo', m.length, 1, 0,
+    'cap is 1200 + 200 per child = £1,400, so £1,399 is the last qualifying pound');
+  check('NEAR-MISS: Warm Home Discount target income', m.length ? m[0].targetValue : null, 1399, 0,
+    'off-by-one guard: searching from the qualifying end, not the user\'s own income');
+  check('NEAR-MISS: Warm Home Discount net gain', m.length ? m[0].netGainAnnual : null, 117.60, 0.5,
+    '£150 discount plus £39.60/yr of UC taper relief, less £72/yr of income');
+}
+
+/* G3 — NEGATIVE. The same scheme must NOT produce a card when the gap is real.
+   REAL RULE as G1. Hand-computed, £500/mo: the gap is £92/mo = £1,104/yr
+   against a £221/yr card, so £883/yr WORSE off. */
 {
   const misses = app.findNearMiss(baseInput({
     age: 30, children: 1, monthlyIncome: 500, receivingUC: true, pregnantOrChildUnder4: true
   }));
-  const hs = misses.filter(m => m.schemeId === 'healthy-start');
-  check('NEAR-MISS: no Healthy Start card for a net-negative income cut', hs.length, 0, 0,
-    'losing £92/mo of income to gain a £18.42/mo card is £883/yr worse off');
-  check('NEAR-MISS: every card shown is a net gain',
-    misses.filter(m => m.netGain <= 0).length, 0, 0,
-    'a card may only appear when the household total at the target beats the total now');
+  check('NEAR-MISS: no Healthy Start card at £500/mo', 
+    misses.filter(m => m.schemeId === 'healthy-start').length, 0, 0,
+    'losing £1,104/yr of income to gain a £221/yr card is £883/yr worse off');
+  check('NEAR-MISS: no card anywhere is a net loss',
+    misses.filter(m => !(m.netGainAnnual > 0)).length, 0, 0,
+    'reads netGainAnnual explicitly — a renamed field must fail here, not pass silently');
 }
 
 /* CASE H — a tapered NON-CASH scheme running out is not a cliff either.
