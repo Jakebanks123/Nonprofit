@@ -229,19 +229,37 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   /* ---------------------------------------------------------------- */
   console.log('\n===== G. THE SLIDER AND THE CHART CANNOT DISAGREE =====\n');
 
-  /* An income of £1,234 is not a multiple of the £25 sweep step. The browser
-     silently snaps the thumb; explore-ui.js has to snap with it, or every
-     figure the panel prints is drawn from a different point than the one the
-     thumb is sitting on. */
-  await toResults(page, { income: 1234 });
-  const snapped = await page.evaluate(() => ({
-    slider: Number(document.getElementById('exploreSlider').value),
-    state: exploreState.value,
-    disabled: document.getElementById('exploreResetBtn').disabled
-  }));
-  check('An off-step income snaps the same way in both places',
-    snapped.slider === snapped.state, `slider ${snapped.slider} vs state ${snapped.state}`);
-  check('And still counts as the starting point', snapped.disabled === true);
+  /* An income of £1,237 is not a multiple of the £25 sweep step, and this is
+     the check that stops the panel drifting back onto that grid. It used to:
+     the thumb snapped to £1,225, the headline said £1,530, the panel said
+     £1,540, and the panel captioned its figure "your starting point, from the
+     answers you gave". 64% of incomes between £600 and £2,000 disagreed by
+     something. Worse than the money, it corrupted the scheme list — £1,590
+     with two children snapped UP past the Warm Home Discount cut-off at
+     £1,599, so the panel offered to add back a scheme the cards above the
+     panel already listed. */
+  const offGrid = [1237, 1263, 1591, 811];
+  for (const income of offGrid) {
+    await toResults(page, { income });
+    const r = await page.evaluate(() => {
+      const big = document.querySelector('.results-summary .text-4xl');
+      return {
+        slider: Number(document.getElementById('exploreSlider').value),
+        state: exploreState.value,
+        disabled: document.getElementById('exploreResetBtn').disabled,
+        headline: big ? big.textContent.trim() : null,
+        panel: (document.querySelector('#exploreReadout .text-2xl') || {}).textContent,
+        added: /would also include/.test(document.getElementById('exploreReadout').textContent)
+      };
+    });
+    check(`£${income}: the thumb lands on the answer itself`,
+      r.slider === income && r.state === income, `slider ${r.slider}, state ${r.state}`);
+    check(`£${income}: it counts as the starting point`, r.disabled === true);
+    check(`£${income}: the panel figure matches the headline`,
+      r.headline === (r.panel || '').trim(), `headline ${r.headline} vs panel ${r.panel}`);
+    check(`£${income}: no scheme is offered that the cards above already list`,
+      r.added === false);
+  }
 
   /* The headline figure at the top of the page and the panel's own figure for
      the same household are the same number, rounded the same way. Two
@@ -335,7 +353,178 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   check('A Universal Credit taper reaching nil is not reported as a cliff',
     found && !found.some(f => /Universal Credit/.test(f)), JSON.stringify(found));
 
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== J. THE READOUT NEVER SELLS BEING POORER =====\n');
+
+  /* The panel's most dangerous function. It used to report the change in
+     support and nothing else, in the same success green as a scheme someone
+     qualifies for: dragging savings from £17,000 to £5,000 read "about £1,415
+     a month more than your starting point" over a green line offering
+     Universal Credit. Twelve thousand pounds of capital given away, rendered
+     as a win. */
+  await toResults(page, { savings: 17000 });
+  await page.click('[data-explore-axis="savings"]');
+  await setSlider(page, 5000);
+  const down = await page.evaluate(() => ({
+    text: document.getElementById('exploreReadout').textContent.replace(/\s+/g, ' ').trim(),
+    html: document.getElementById('exploreReadout').innerHTML
+  }));
+  console.log('  ' + down.text.slice(0, 200));
+  check('Giving up capital is stated alongside the support it buys',
+    /£12,000 less in savings/.test(down.text), down.text.slice(0, 160));
+  check('Deprivation of capital is spelled out when dragging savings down',
+    /deprivation of capital/i.test(down.text) && /does not work/i.test(down.text));
+  check('Nothing on that path is coloured as a success',
+    !/text-good-700/.test(down.html));
+
+  /* Dragging savings UP costs the reader nothing, so the warning would just be
+     noise there. */
+  await setSlider(page, 19000);
+  const up = await text(page, '#exploreReadout');
+  check('and not shown when savings are dragged upwards',
+    !/deprivation of capital/i.test(up), up.slice(0, 120));
+
+  /* Income: the household total, not the support total. Dragging to £0 used to
+     read "about £645 a month more" for a household £955 a month worse off. */
+  await toResults(page, { income: 1600, checks: ['receivingUC'] });
+  await setSlider(page, 0);
+  const broke = await text(page, '#exploreReadout');
+  console.log('  ' + broke.slice(0, 200));
+  check('Lost income is stated alongside the support it buys',
+    /£1,600 a month less coming in/.test(broke), broke.slice(0, 160));
+  check('and the household is said to end up with less overall',
+    /leave the household with less/.test(broke), broke.slice(0, 160));
+
+  /* The screen-reader line has to carry the same counterweight — the figure
+     read aloud with no mention of what it cost is the same inducement. */
+  const spoken = await page.evaluate(() =>
+    exploreAnnouncement(exploreCache.monthlyIncome, exploreState.input,
+      exploreBaseline(exploreState.input, 'monthlyIncome'), 0));
+  console.log('  spoken: ' + spoken);
+  check('The spoken summary names the cost too',
+    /less coming in/.test(spoken), spoken);
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== K. OFF THE END OF THE AXIS =====\n');
+
+  /* Savings of £40,000 cannot be shown on a £20,000 axis, so the thumb is
+     clamped. What it must not do is call the clamped point the user's own
+     position: the headline said £170 a month and the panel said £345 under
+     the caption "That is what you told us." */
+  await toResults(page, { age: 70, adults: 1, children: 0, income: 600, savings: 40000,
+    housing: 0, council: 'Birmingham' });
+  const off = await page.evaluate(() => {
+    if (!document.getElementById('explorePanel')) return { none: true };
+    document.querySelector('[data-explore-axis="savings"]').click();
+    const big = document.querySelector('.results-summary .text-4xl');
+    return {
+      headline: big ? big.textContent.trim() : null,
+      panel: (document.querySelector('#exploreReadout .text-2xl') || {}).textContent,
+      readout: document.getElementById('exploreReadout').textContent.replace(/\s+/g, ' ').trim(),
+      note: document.getElementById('exploreBody').textContent.includes('above the top of this range')
+    };
+  });
+  if (off.none) {
+    console.log('  (no panel for this household — nothing to check)');
+  } else {
+    console.log('  headline ' + off.headline + ' / panel ' + off.panel);
+    check('A clamped start is never called the user\'s own answer',
+      !/That is what you told us/.test(off.readout), off.readout.slice(0, 160));
+    check('It is compared against the real answer instead',
+      /less in savings|more in savings/.test(off.readout), off.readout.slice(0, 160));
+    check('and the clamp is said out loud', off.note === true);
+  }
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== L. NO CASH ON THIS AXIS =====\n');
+
+  /* renderNoResults() exists so that nobody is shown £0 in the largest type on
+     the page. The panel reproduced it two sections further down: a household
+     whose only help is a council tax reduction got a 2xl "£0 / a month in cash
+     support", and then a sentence pointing at "what the chart shows" with no
+     chart on the page. */
+  await toResults(page, { age: 40, adults: 1, children: 0, income: 2500, savings: 0, housing: 0 });
+  const noCash = await page.evaluate(() => {
+    if (!document.getElementById('explorePanel')) return { none: true };
+    document.querySelector('[data-explore-axis="savings"]').click();
+    return {
+      hasChart: !!document.getElementById('exploreChart'),
+      big: (document.querySelector('#exploreReadout .text-2xl') || {}).textContent || '',
+      body: document.getElementById('exploreBody').textContent.replace(/\s+/g, ' ')
+    };
+  });
+  if (noCash.none) {
+    console.log('  (no panel for this household — nothing to check)');
+  } else {
+    console.log('  chart drawn: ' + noCash.hasChart + ', big figure: ' + JSON.stringify(noCash.big));
+    check('No £0 headline where there is no cash to plot', noCash.big.trim() !== '£0', noCash.big);
+    check('and no reference to a chart that was not drawn',
+      noCash.hasChart || !/what the chart shows/.test(noCash.body));
+  }
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== M. THE ANNOUNCEMENT DOES NOT FOLLOW YOU OFF THE PAGE =====\n');
+
+  /* The live-region update is debounced by 400ms. Moving the slider and
+     pressing "Change my answers" inside that window used to announce "£4,000:
+     about £195 a month... No longer listed for Universal Credit" while the
+     user was looking at the postcode question. */
+  await toResults(page, {});
+  await setSlider(page, 4000);
+  await page.click('#restartBtn');
+  await page.waitForTimeout(700);
+  const strayed = await page.evaluate(() => ({
+    live: document.getElementById('liveRegion').textContent,
+    heading: (document.getElementById('stepHeading') || {}).textContent
+  }));
+  console.log('  on "' + strayed.heading + '", live region: ' + JSON.stringify(strayed.live));
+  check('Nothing from the panel is announced after leaving the results screen',
+    !/cash support/.test(strayed.live), strayed.live);
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== N. THE SLIDER ON A TOUCHSCREEN =====\n');
+
+  /* touch-action:none made a vertical swipe starting anywhere on this control
+     do nothing at all — no page scroll, and the value jumped to wherever the
+     finger landed. The slider is w-full, so on a phone it is a band across the
+     whole column. */
+  const touch = await page.evaluate(() => {
+    const el = document.getElementById('exploreSlider');
+    return el ? { action: getComputedStyle(el).touchAction, height: el.getBoundingClientRect().height } : null;
+  });
+  await toResults(page, {});
+  const touch2 = await page.evaluate(() => {
+    const el = document.getElementById('exploreSlider');
+    return { action: getComputedStyle(el).touchAction, height: el.getBoundingClientRect().height };
+  });
+  console.log('  touch-action: ' + touch2.action + ', height: ' + touch2.height.toFixed(1) + 'px');
+  check('Vertical scrolling is left to the page', touch2.action === 'pan-y', touch2.action);
+  check('The touch target clears WCAG 2.2 SC 2.5.8 (24px), with room',
+    touch2.height >= 44, touch2.height.toFixed(1) + 'px');
+
   await browser.close();
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== O. WINDOWS HIGH CONTRAST =====\n');
+
+  /* The two axis tabs differed only by background, text and border COLOUR, all
+     of which forced-colors overrides — both came back identical black on
+     white, so a High Contrast user could not see which axis they were on. */
+  const hcBrowser = await chromium.launch();
+  const hcPage = await (await hcBrowser.newContext({ forcedColors: 'active' })).newPage();
+  await toResults(hcPage, {});
+  const tabs = await hcPage.evaluate(() =>
+    Array.from(document.querySelectorAll('[data-explore-axis]')).map(el => {
+      const cs = getComputedStyle(el);
+      return { pressed: el.getAttribute('aria-pressed'), width: cs.borderTopWidth, deco: cs.textDecorationLine };
+    }));
+  console.log('  ' + JSON.stringify(tabs));
+  const on = tabs.find(t => t.pressed === 'true');
+  const offTab = tabs.find(t => t.pressed === 'false');
+  check('The selected axis tab is distinguishable without colour',
+    !!on && !!offTab && (on.width !== offTab.width || on.deco !== offTab.deco),
+    JSON.stringify(tabs));
+  await hcBrowser.close();
 
   console.log('\n===== SUMMARY =====\n');
   if (problems.length) {

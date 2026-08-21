@@ -34,6 +34,7 @@ const exploreState = {
      resets the slider instead of leaving it parked on a stale figure. */
   signature: null,
   announceTimer: null,
+  generation: 0,
   /* The sanitised answers the panel was last built from. Held here so that
      wireExplorePanel() needs no argument and cannot be handed a second,
      separately-sanitised copy that disagrees with what is on screen. */
@@ -49,21 +50,51 @@ const exploreCache = {};
 
 /* ---------- DATA ---------- */
 
-/* The slider steps by axis.step, so every value it can hold is exactly one of
-   the sampled points and the chart never has to interpolate. That only holds
-   if the starting point is on the grid too — an income of £1,234 is not a
-   multiple of £25, and the browser would silently snap the thumb to £1,225
-   while this file went on believing it was at £1,234. Snapping here, once,
-   keeps the two in agreement.
+/* Where the thumb sits for a given answer.
 
-   Also clamped: sanitiseInput allows savings up to £10,000,000 and the axis
-   stops at £20,000, so a value off the end of the range has to land somewhere
-   real. renderExploreBody says so when that happens rather than quietly
-   pretending £50,000 of savings is £20,000. */
-function exploreSnap(axis, value) {
-  const clamped = Math.min(axis.max, Math.max(axis.min, Number(value) || 0));
-  const steps = Math.round((clamped - axis.min) / axis.step);
-  return axis.min + steps * axis.step;
+   Clamped, never snapped. An earlier version rounded the answer onto the
+   £25 sweep grid so that the chart could be read by array index instead of
+   re-evaluated, and it put two different figures for one household on one
+   screen: an income of £1,237 snapped to £1,225, the headline at the top of
+   the results said £1,530 and the panel underneath said £1,540 while calling
+   it "your starting point, from the answers you gave". Sixty-four per cent of
+   incomes between £600 and £2,000 were off by something. Worse, £1,590 with
+   two children snapped UP to £1,600, past the Warm Home Discount cut-off, so
+   the panel offered to add back a scheme the same page already listed.
+
+   The slider now has step="1" and lands on the answer exactly. Arrow keys are
+   handled in wireExploreBody so that a fine step does not mean 7,000 presses
+   to cross the axis.
+
+   Clamping still happens, and still cannot be avoided: sanitiseInput allows
+   savings up to £10,000,000 and the axis stops at £20,000. What has changed is
+   that a clamped start is no longer described as the user's own position —
+   every figure is compared against exploreBaseline() below, which is
+   evaluated at the real, unclamped answer. */
+function exploreStartValue(axis, value) {
+  return Math.min(axis.max, Math.max(axis.min, Number(value) || 0));
+}
+
+/* One point on the curve, evaluated rather than looked up.
+
+   The sweep is sampled every £25 or £50 for drawing; the readout has to be
+   exact at whatever pound the thumb is on, and at the user's own answer, which
+   is not on the sampling grid in general. evaluateAll() over six national
+   schemes is plain arithmetic — building the whole panel, sweep included,
+   costs about a millisecond — so this is affordable on every input event. */
+function exploreEvalAt(input, axisKey, value) {
+  const { national } = evaluateAll(cloneWith(input, axisKey, value));
+  return {
+    cashMonthly: cashMonthlyAt(national),
+    eligibleIds: national.map(r => r.scheme.id)
+  };
+}
+
+/* The household exactly as they answered — the figure the results summary at
+   the top of the same screen is showing. Everything in the panel is compared
+   against this, so the two can never disagree. */
+function exploreBaseline(input, axisKey) {
+  return exploreEvalAt(input, axisKey, Number(input[axisKey]) || 0);
 }
 
 function exploreSignature(input) {
@@ -83,14 +114,6 @@ function exploreDataFor(input, axisKey) {
   data.maxCash = data.series.reduce((m, p) => Math.max(m, p.cashMonthly), 0);
   exploreCache[axisKey] = data;
   return data;
-}
-
-/* Index straight into the sweep rather than re-evaluating. Exact, not
-   approximate, because exploreSnap() guarantees the value is a sampled x. */
-function explorePointAt(data, value) {
-  const i = Math.round((value - data.axis.min) / data.axis.step);
-  return data.series[Math.min(data.series.length - 1, Math.max(0, i))]
-    || { x: value, cashMonthly: 0, eligibleIds: [] };
 }
 
 /* ---------- FORMATTING ---------- */
@@ -192,7 +215,7 @@ function chartLabel(data) {
   return `${shape} ${stops}. The same points are listed as text below.`;
 }
 
-function renderExploreChart(data, startValue) {
+function renderExploreChart(data, input, startValue) {
   const { axis, series, cliffs, maxCash } = data;
 
   /* No cash anywhere on the axis means a flat line along the bottom, which
@@ -219,7 +242,7 @@ function renderExploreChart(data, startValue) {
   /* Where the user actually is. Hidden until the slider moves off it, because
      two markers on the same pixel is just a thicker line. */
   const startX = chartX(axis, startValue).toFixed(1);
-  const startY = chartY(maxCash, explorePointAt(data, startValue).cashMonthly).toFixed(1);
+  const startY = chartY(maxCash, exploreEvalAt(input, data.key, startValue).cashMonthly).toFixed(1);
 
   return `
     <svg viewBox="0 0 ${CHART.w} ${CHART.h}" preserveAspectRatio="none"
@@ -247,69 +270,142 @@ function renderExploreChart(data, startValue) {
 
 /* ---------- THE READOUT ---------- */
 
-/* What changes between where the slider started and where it has been dragged.
+/* What changes between the household's real answers and where the slider is.
 
-   Named schemes, not just a number: "£430 a month less" does not tell anyone
-   which thing to go and read about, and the cash figure moves for two quite
-   different reasons — an award tapering down, and an award stopping. */
-function renderExploreReadout(data, startValue, value) {
+   THIS FUNCTION IS WHERE THE FEATURE IS MOST DANGEROUS. An earlier version
+   reported only the change in support, in the same success green used for a
+   scheme someone qualifies for. Dragging savings from £17,000 down to £5,000
+   read "That is about £1,415 a month more than your starting point" over a
+   green line offering Universal Credit — twelve thousand pounds of capital
+   given away, presented as a win. Dragging income from £1,600 to nothing read
+   "£645 a month more" for a household £955 a month worse off.
+
+   Two rules came out of that, and both are load-bearing:
+
+   1. The reader's own money is always stated alongside the support. Support
+      going up is never printed without the income or savings it cost.
+   2. Nothing that reduces the reader's own money is coloured as good.
+
+   The two figures are deliberately NOT added into one headline number, except
+   for the plain warning at the end. Cash support and money coming in are both
+   monthly cash and can honestly be netted; a council tax reduction and a food
+   card cannot be added to either, which is the same reason sumEstimates()
+   refuses to print one total and householdValueAnnual() in explore-core.js is
+   documented as never being surfaced. So the net is used only to decide
+   whether to say "less overall", never to print a figure. */
+function renderExploreReadout(data, input, baseline, value) {
   const { axis } = data;
   const g = exploreGrammar(data);
   const here = exploreFormatValue(axis, value);
-  const now = explorePointAt(data, value);
-  const start = explorePointAt(data, startValue);
+  const now = exploreEvalAt(input, data.key, value);
+  const trueValue = Number(input[data.key]) || 0;
 
   const nameOf = id => {
     const s = NATIONAL_SCHEMES.find(n => n.id === id);
     return s ? s.name : id;
   };
-  const dropped = start.eligibleIds.filter(id => now.eligibleIds.indexOf(id) === -1).map(nameOf);
-  const added = now.eligibleIds.filter(id => start.eligibleIds.indexOf(id) === -1).map(nameOf);
+  const dropped = baseline.eligibleIds.filter(id => now.eligibleIds.indexOf(id) === -1).map(nameOf);
+  const added = now.eligibleIds.filter(id => baseline.eligibleIds.indexOf(id) === -1).map(nameOf);
 
-  const delta = now.cashMonthly - start.cashMonthly;
-  const diff = exploreCash(Math.abs(delta));
+  const supportDelta = now.cashMonthly - baseline.cashMonthly;
+  const ownDelta = value - trueValue;
 
-  /* "the same" rather than silence, because on a flat stretch the sameness is
-     the finding — most of a taper is flat between its steps, and someone
-     dragging across one needs to be told nothing happened rather than left to
-     assume the panel has stopped working. */
+  /* An axis where nothing pays cash at any point draws no chart, and must not
+     print a £0 headline either. renderNoResults() exists precisely so that
+     nobody is shown £0 in the largest type on the page; reproducing it two
+     sections further down would undo that. */
+  const noCash = data.maxCash <= 0;
+
+  const figure = noCash
+    ? `<p class="text-base text-pretty text-ink">At <span class="font-semibold tabular-nums">${here}</span>, none of the help you may be able to get is regular cash. What is listed above lowers a bill or comes as a card instead, so there is nothing to plot here — but it can still stop, and where it stops is below.</p>`
+    : `<p class="text-base text-pretty text-muted">If your ${g.noun} were <span class="font-semibold tabular-nums text-ink">${here}</span>, you may be able to get about</p>
+       <div class="mt-0.5 flex flex-wrap items-baseline gap-x-2">
+         <p class="text-2xl font-semibold tracking-tight tabular-nums text-brand-800">${exploreCash(now.cashMonthly)}</p>
+         <p class="text-base font-medium text-brand-800">a month in cash support</p>
+       </div>`;
+
+  /* "the same" rather than silence: most of a taper is flat between its steps,
+     and someone dragging across one needs to be told nothing happened rather
+     than left to assume the panel has stopped working. */
+  const supportPhrase = Math.abs(supportDelta) < 0.5
+    ? "the same cash support as your answers"
+    : `about ${exploreCash(Math.abs(supportDelta))} a month ${supportDelta > 0 ? "more" : "less"} cash support than your answers`;
+
   let comparison;
-  if (value === startValue) comparison = "That is your starting point, from the answers you gave.";
-  else if (Math.abs(delta) < 0.5) comparison = "That is the same cash support as your starting point.";
-  else if (delta > 0) comparison = `That is about ${diff} a month more than your starting point.`;
-  else comparison = `That is about ${diff} a month less than your starting point.`;
+  if (ownDelta === 0) {
+    /* The no-cash sentence above already opens with "At £0, none of the help
+       ... is regular cash", so following it with "That is what you told us"
+       reads as a reply to a question nobody asked. */
+    comparison = noCash ? "" : "That is what you told us.";
+  } else if (data.key === "monthlyIncome") {
+    const own = `${gbp(Math.abs(ownDelta))} a month ${ownDelta > 0 ? "more" : "less"} coming in`;
+    /* Stated only in the direction that could mislead. Where the household
+       ends up ahead the reader can see it from the two figures; where it ends
+       up behind while the support figure went UP, they need telling. */
+    const worse = (ownDelta + supportDelta) < -0.5
+      ? " Overall that would leave the household with less."
+      : "";
+    comparison = `That is ${supportPhrase}, and ${own}.${worse}`;
+  } else {
+    comparison = `That is ${supportPhrase}, with ${gbp(Math.abs(ownDelta))} ${ownDelta > 0 ? "more" : "less"} in savings.`;
+  }
 
   const changes = [];
   if (dropped.length) {
     changes.push(`<p class="mt-2 text-base text-pretty text-warn-700">At ${here} you would no longer be listed for ${listToSentence(dropped)}.</p>`);
   }
   if (added.length) {
-    changes.push(`<p class="mt-2 text-base text-pretty text-good-700">At ${here} you would also be listed for ${listToSentence(added)}.</p>`);
+    /* Neutral, not text-good-700. Every route to this line costs the reader
+       income or capital; colouring it as a success is an inducement. */
+    changes.push(`<p class="mt-2 text-base text-pretty text-ink">At ${here} the list above would also include ${listToSentence(added)}.</p>`);
   }
 
+  /* The one place the panel gives the reader a direct instruction, and it is
+     an instruction NOT to act. A savings slider that can be dragged downwards
+     is an invitation to do the one thing that reliably backfires, so the
+     warning appears the moment it is dragged that way. findNearMiss() in
+     explore-core.js refuses to probe this axis at all for the same reason. */
+  const deprivation = (data.key === "savings" && ownDelta < 0) ? `
+    <div class="mt-3 rounded-field border border-warn-700/30 bg-warn-50 p-3">
+      <p class="text-base text-pretty text-ink"><strong>Spending savings down on purpose does not work.</strong> If money is spent or given away in order to qualify for something, the DWP can decide the claim as though the money were still there. It is called deprivation of capital. The money is gone and the claim is refused anyway.</p>
+    </div>` : "";
+
   return `
-    <p class="text-base text-pretty text-muted">If your ${g.noun} were <span class="font-semibold tabular-nums text-ink">${here}</span>, you may be able to get about</p>
-    <div class="mt-0.5 flex flex-wrap items-baseline gap-x-2">
-      <p class="text-2xl font-semibold tracking-tight tabular-nums text-brand-800">${exploreCash(now.cashMonthly)}</p>
-      <p class="text-base font-medium text-brand-800">a month in cash support</p>
-    </div>
-    <p class="mt-1 text-base text-pretty text-muted">${comparison}</p>
-    ${changes.join("")}`;
+    ${figure}
+    ${comparison ? `<p class="mt-1 text-base text-pretty text-muted">${comparison}</p>` : ""}
+    ${changes.join("")}
+    ${deprivation}`;
 }
 
 /* Short enough to be worth hearing after every arrow key. The visible readout
-   above says more; this is the part a screen reader gets. */
-function exploreAnnouncement(data, startValue, value) {
-  const now = explorePointAt(data, value);
-  const start = explorePointAt(data, startValue);
-  const dropped = start.eligibleIds.filter(id => now.eligibleIds.indexOf(id) === -1);
+   says more; this is what a screen reader gets — and it carries the same
+   counterweight, because an announcement of "about £1,605 a month in cash
+   support" with no mention of the twelve thousand pounds it cost is the same
+   inducement read aloud. */
+function exploreAnnouncement(data, input, baseline, value) {
+  const now = exploreEvalAt(input, data.key, value);
+  const trueValue = Number(input[data.key]) || 0;
+  const ownDelta = value - trueValue;
+
+  const dropped = baseline.eligibleIds.filter(id => now.eligibleIds.indexOf(id) === -1);
   const lost = dropped.length
     ? " No longer listed for " + listToSentence(dropped.map(id => {
         const s = NATIONAL_SCHEMES.find(n => n.id === id);
         return s ? s.name : id;
       })) + "."
     : "";
-  return `${exploreFormatValue(data.axis, value)}: about ${exploreCash(now.cashMonthly)} a month in cash support.${lost}`;
+
+  const head = data.maxCash <= 0
+    ? `${exploreFormatValue(data.axis, value)}: no regular cash support.`
+    : `${exploreFormatValue(data.axis, value)}: about ${exploreCash(now.cashMonthly)} a month in cash support.`;
+
+  let cost = "";
+  if (ownDelta < 0) {
+    cost = data.key === "monthlyIncome"
+      ? ` That is ${gbp(-ownDelta)} a month less coming in.`
+      : ` That is ${gbp(-ownDelta)} less in savings.`;
+  }
+  return head + cost + lost;
 }
 
 /* ---------- THE CLIFF LIST ---------- */
@@ -317,14 +413,20 @@ function exploreAnnouncement(data, startValue, value) {
 /* The chart is a picture of this list. The list is the part that has to be
    right: it is what a screen reader gets, what survives printing, and what
    someone reads on a phone where a 100px-tall chart is barely legible. */
-function renderExploreCliffs(data) {
+function renderExploreCliffs(data, hasChart) {
   const { axis, cliffs } = data;
   const g = exploreGrammar(data);
 
   if (!cliffs.length) {
+    /* "which is what the chart shows" was printed unconditionally, including
+       on the axes where maxCash is 0 and renderExploreChart() returns nothing
+       — pointing the reader at a picture that is not on the page. */
+    const tail = hasChart
+      ? ` That does not mean the amounts stay the same — some of them change gradually as ${g.noun} ${g.change}, which is what the chart shows.`
+      : ` That does not mean the amounts stay the same — some of them change gradually as ${g.noun} ${g.change}.`;
     return `
       <h3 class="mt-5 text-lg font-semibold tracking-tight text-ink">Where support stops</h3>
-      <p class="mt-2 max-w-[56ch] text-base text-pretty text-muted">From your answers, none of the support above stops at any point on this range. That does not mean the amounts stay the same — some of them change gradually as ${g.noun} ${g.change}, which is what the chart shows.</p>`;
+      <p class="mt-2 max-w-[56ch] text-base text-pretty text-muted">From your answers, none of the support above stops at any point on this range.${tail}</p>`;
   }
 
   const items = cliffs.map(c => {
@@ -372,19 +474,22 @@ const EXPLORE_TAB = {
 function renderExploreBody(input) {
   const data = exploreDataFor(input, exploreState.axis);
   const { axis, maxCash } = data;
-  const startValue = exploreSnap(axis, input[exploreState.axis]);
+  const trueValue = Number(input[exploreState.axis]) || 0;
+  const startValue = exploreStartValue(axis, trueValue);
+  const baseline = exploreBaseline(input, exploreState.axis);
   const value = exploreState.value;
   const pct = ((value - axis.min) / (axis.max - axis.min)) * 100;
 
-  /* Someone with £50,000 in savings has a real answer that is off the end of a
-     £20,000 axis. Clamping silently would show them a starting point that is
-     not theirs, so it is said out loud. */
-  const trueValue = Number(input[exploreState.axis]) || 0;
+  /* Someone with £40,000 in savings has a real answer off the end of a £20,000
+     axis, and the thumb has to sit somewhere. What it must not do is claim
+     that somewhere is theirs: the readout compares against exploreBaseline(),
+     evaluated at the real £40,000, so the opening state reads as the
+     hypothetical it is rather than as "your starting point". */
   const offRange = trueValue > axis.max
-    ? `<p class="mt-1.5 text-base text-pretty text-muted sm:text-sm">Your answer of ${exploreFormatValue(axis, trueValue)} is above the top of this range, so the slider starts at ${exploreFormatValue(axis, axis.max)}.</p>`
+    ? `<p class="mt-1.5 text-base text-pretty text-muted sm:text-sm">Your answer of ${exploreFormatValue(axis, trueValue)} is above the top of this range, so the slider starts at ${exploreFormatValue(axis, axis.max)}. The figures below compare that against your real answer.</p>`
     : "";
 
-  const chart = renderExploreChart(data, startValue);
+  const chart = renderExploreChart(data, input, startValue);
   const chartFrame = chart ? `
     <div class="mt-4">
       <div class="flex flex-wrap items-baseline justify-between gap-x-4 text-base text-muted sm:text-sm">
@@ -401,10 +506,14 @@ function renderExploreBody(input) {
           : "The dashed red lines mark where a scheme stops. Each one is named underneath."}</p>` : ""}
     </div>` : "";
 
+  /* step="1", not axis.step — see exploreStartValue(). The thumb has to be
+     able to land on the answer itself, which is not on the sweep grid in
+     general. wireExploreBody() binds the arrow keys to axis.step so that a
+     one-pound step does not mean seven thousand key presses. */
   return `
     <label class="mb-1.5 block text-base font-medium text-ink" for="exploreSlider">${axis.label}</label>
     <input type="range" id="exploreSlider" name="exploreSlider" class="w-full"
-           min="${axis.min}" max="${axis.max}" step="${axis.step}" value="${value}"
+           min="${axis.min}" max="${axis.max}" step="1" value="${value}"
            style="--range-progress:${pct}%"
            aria-valuetext="${exploreFormatValue(axis, value)}"
            aria-describedby="exploreSliderHint">
@@ -413,14 +522,14 @@ function renderExploreBody(input) {
     ${chartFrame}
 
     <div class="mt-4 rounded-field border border-line bg-canvas p-4">
-      <div id="exploreReadout">${renderExploreReadout(data, startValue, value)}</div>
+      <div id="exploreReadout">${renderExploreReadout(data, input, baseline, value)}</div>
       <p class="mt-3">
         <button class="rounded-full border border-line-strong bg-surface px-4 py-2 text-base font-medium whitespace-nowrap text-brand-800 disabled:opacity-50"
                 id="exploreResetBtn" type="button" ${value === startValue ? "disabled" : ""}>Back to the start</button>
       </p>
     </div>
 
-    ${renderExploreCliffs(data)}`;
+    ${renderExploreCliffs(data, !!chart)}`;
 }
 
 /* Returns "" when there is nothing worth drawing, so the results screen does
@@ -449,7 +558,10 @@ function renderExplorePanel(input, nationalResults) {
      per entry — the panel updates its own subtree afterwards and never calls
      render() again, or this would fight the slider on every drag. */
   exploreState.axis = "monthlyIncome";
-  exploreState.value = exploreSnap(SWEEP_AXES.monthlyIncome, input.monthlyIncome);
+  exploreState.value = exploreStartValue(SWEEP_AXES.monthlyIncome, input.monthlyIncome);
+  /* Bumped on every entry to the results screen so a debounced announcement
+     queued by the previous one cannot speak into this one. */
+  exploreState.generation++;
 
   const worthShowing = Object.keys(SWEEP_AXES).some(key => {
     const d = exploreDataFor(input, key);
@@ -491,7 +603,7 @@ function wireExplorePanel() {
       const key = btn.getAttribute("data-explore-axis");
       if (key === exploreState.axis) return;
       exploreState.axis = key;
-      exploreState.value = exploreSnap(SWEEP_AXES[key], input[key]);
+      exploreState.value = exploreStartValue(SWEEP_AXES[key], input[key]);
       panel.querySelectorAll("[data-explore-axis]").forEach(other => {
         const on = other === btn;
         other.className = on ? EXPLORE_TAB.on : EXPLORE_TAB.off;
@@ -511,15 +623,16 @@ function wireExploreBody(input) {
   const resetBtn = document.getElementById("exploreResetBtn");
   const readout = document.getElementById("exploreReadout");
   const data = exploreDataFor(input, exploreState.axis);
-  const startValue = exploreSnap(data.axis, input[exploreState.axis]);
+  const axis = data.axis;
+  const startValue = exploreStartValue(axis, input[exploreState.axis]);
+  /* Computed once. It is the household as answered, so it cannot move while
+     the slider does, and re-evaluating it per input event would be waste. */
+  const baseline = exploreBaseline(input, exploreState.axis);
 
-  /* A stale timer from the previous axis would otherwise read out a figure
-     from a chart that is no longer on screen. */
   clearTimeout(exploreState.announceTimer);
 
   function apply(value, fromSlider) {
     exploreState.value = value;
-    const axis = data.axis;
 
     const pct = ((value - axis.min) / (axis.max - axis.min)) * 100;
     slider.style.setProperty("--range-progress", pct + "%");
@@ -533,7 +646,8 @@ function wireExploreBody(input) {
       if (dot) {
         /* A round-capped near-zero-length line, not a circle — see the note on
            preserveAspectRatio above. It moves by its endpoints. */
-        const y = Number(chartY(data.maxCash, explorePointAt(data, value).cashMonthly).toFixed(1));
+        const cash = exploreEvalAt(input, data.key, value).cashMonthly;
+        const y = Number(chartY(data.maxCash, cash).toFixed(1));
         dot.setAttribute("y1", y);
         dot.setAttribute("y2", y + 0.01);
       }
@@ -541,21 +655,49 @@ function wireExploreBody(input) {
       if (mark) mark.style.display = value === startValue ? "none" : "";
     }
 
-    readout.innerHTML = renderExploreReadout(data, startValue, value);
+    readout.innerHTML = renderExploreReadout(data, input, baseline, value);
     resetBtn.disabled = value === startValue;
 
     /* The readout itself is NOT a live region. A range input already announces
        its own aria-valuetext on every arrow key, so a live region on the same
        gesture would talk over it, and a drag would queue one announcement per
        step. Instead the app's single sr-only live region gets one short
-       sentence, and only once the slider has been still for a moment. */
+       sentence, and only once the slider has been still for a moment.
+
+       The generation check is not belt-and-braces. Move the slider and press
+       "Change my answers" inside the debounce window and the timer used to
+       fire onto step 1, telling a screen reader user they had lost Universal
+       Credit while they were looking at the postcode question. */
     clearTimeout(exploreState.announceTimer);
+    const generation = exploreState.generation;
     exploreState.announceTimer = setTimeout(() => {
-      announce(exploreAnnouncement(data, startValue, value));
+      if (generation !== exploreState.generation) return;
+      if (!document.getElementById("exploreSlider")) return;
+      announce(exploreAnnouncement(data, input, baseline, value));
     }, 400);
   }
 
   slider.addEventListener("input", e => apply(Number(e.target.value), true));
+
+  /* step="1" is what lets the thumb land on the user's own answer, but it also
+     makes a single arrow press worth £1 — 7,000 of them to cross the income
+     axis, which is not a keyboard interface. The arrows are therefore bound to
+     the sweep step instead. Home and End are left to the browser: they already
+     go to the ends and fire input. */
+  slider.addEventListener("keydown", e => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    let delta = 0;
+    if (e.key === "ArrowRight" || e.key === "ArrowUp") delta = axis.step;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowDown") delta = -axis.step;
+    else if (e.key === "PageUp") delta = axis.step * 10;
+    else if (e.key === "PageDown") delta = -axis.step * 10;
+    else return;
+    e.preventDefault();
+    const next = Math.min(axis.max, Math.max(axis.min, Number(slider.value) + delta));
+    slider.value = String(next);
+    apply(next, true);
+  });
+
   resetBtn.addEventListener("click", () => {
     apply(startValue, false);
     slider.focus();

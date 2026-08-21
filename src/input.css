@@ -158,15 +158,22 @@
   input[type="range"] {
     appearance: none;
     -webkit-appearance: none;
-    /* A 24px thumb needs room, and the padding doubles as the touch
-       target: 44px tall in total, which is WCAG 2.2 SC 2.5.8 Target Size
-       with margin to spare on a phone. */
+    /* Measured, not assumed. Padding alone left the control 27px tall in
+       Chromium and WebKit (43px in Firefox, which sizes the intrinsic
+       control differently), because the vendor track height does not add to
+       the box the way a normal child would. An explicit min-height is the
+       only way to get the same target on all three. 44px clears WCAG 2.2
+       SC 2.5.8 with room, rather than scraping its 24px floor. */
     padding-block: --spacing(2.5);
+    min-block-size: --spacing(11);
     background: transparent;
-    /* Without this, dragging the thumb on a touchscreen scrolls the page
-       instead and the slider is unusable on the devices this audience is
-       most likely to be holding. */
-    touch-action: none;
+    /* pan-y, NOT none. This slider is w-full — a band across the whole
+       content column on a phone — and touch-action:none made a vertical
+       swipe that happened to start on it do nothing at all: the page would
+       not scroll and the value jumped to wherever the finger landed. pan-y
+       gives vertical scrolling back to the page and keeps the horizontal
+       drag for the slider, which is the only axis it has. */
+    touch-action: pan-y;
   }
 
   input[type="range"]::-webkit-slider-runnable-track {
@@ -210,6 +217,23 @@
     border: 3px solid var(--color-surface);
     border-radius: 999px;
     background: var(--color-brand-600);
+  }
+
+  /* The selected axis tab differs from the unselected one only by
+     background, text and border COLOUR, and forced-colors overrides all
+     three — both pills came back identical black-on-white, so a High
+     Contrast user could not see which axis they were on. aria-pressed still
+     carries it to a screen reader; this restores it for a sighted one.
+
+     Underline rather than a thicker border, which was tried first and did
+     nothing: this rule is in @layer base, and Tailwind's utilities layer
+     outranks it, so `border-width` here loses to the `border` utility on the
+     button. Nothing sets text-decoration, so the underline lands. */
+  @media (forced-colors: active) {
+    [data-explore-axis][aria-pressed="true"] {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
   }
 
   /* Windows High Contrast discards background-color on these pseudo
