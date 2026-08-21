@@ -238,7 +238,11 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
      with two children snapped UP past the Warm Home Discount cut-off at
      £1,599, so the panel offered to add back a scheme the cards above the
      panel already listed. */
-  const offGrid = [1237, 1263, 1591, 811];
+  /* 1200.756 is not a typo. sanitiseInput() does not round, verify-ui.js
+     pushes exactly that figure through the wizard, and the slider is an
+     integer control — so the household's real position is not a value the
+     thumb can hold. The panel has to agree with the headline anyway. */
+  const offGrid = [1237, 1263, 1591, 811, 1200.756];
   for (const income of offGrid) {
     await toResults(page, { income });
     const r = await page.evaluate(() => {
@@ -253,7 +257,8 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
       };
     });
     check(`£${income}: the thumb lands on the answer itself`,
-      r.slider === income && r.state === income, `slider ${r.slider}, state ${r.state}`);
+      r.slider === r.state && Math.abs(r.slider - income) < 1,
+      `slider ${r.slider}, state ${r.state}`);
     check(`£${income}: it counts as the starting point`, r.disabled === true);
     check(`£${income}: the panel figure matches the headline`,
       r.headline === (r.panel || '').trim(), `headline ${r.headline} vs panel ${r.panel}`);

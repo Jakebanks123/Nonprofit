@@ -72,7 +72,14 @@ const exploreCache = {};
    every figure is compared against exploreBaseline() below, which is
    evaluated at the real, unclamped answer. */
 function exploreStartValue(axis, value) {
-  return Math.min(axis.max, Math.max(axis.min, Number(value) || 0));
+  /* Rounded, because the slider has step="1" from an integer min and the
+     browser will refuse a fractional value anyway — sanitiseInput does not
+     round, and verify-ui.js deliberately pushes 1200.756 through the wizard.
+     Leaving the fraction here put exploreState.value and the thumb back out
+     of step with each other, which is the bug step="1" exists to kill. What
+     must NOT be rounded is the figure it is compared against; see atTrue in
+     renderExploreReadout(). */
+  return Math.round(Math.min(axis.max, Math.max(axis.min, Number(value) || 0)));
 }
 
 /* One point on the curve, evaluated rather than looked up.
@@ -297,8 +304,18 @@ function renderExploreReadout(data, input, baseline, value) {
   const { axis } = data;
   const g = exploreGrammar(data);
   const here = exploreFormatValue(axis, value);
-  const now = exploreEvalAt(input, data.key, value);
   const trueValue = Number(input[data.key]) || 0;
+
+  /* Is the thumb on the household's real position? Within a pound, not
+     exactly equal: the thumb is an integer and the answer need not be. When
+     it is, the baseline is used verbatim instead of re-evaluating at the
+     rounded pound, so the figure printed here is the identical number the
+     results summary is showing at the top of the screen — by construction,
+     not by luck. It is also false whenever the answer is off the end of the
+     axis and the thumb has been clamped, which is exactly right: £20,000 is
+     not where a household holding £40,000 is standing. */
+  const atTrue = Math.abs(value - trueValue) < 1;
+  const now = atTrue ? baseline : exploreEvalAt(input, data.key, value);
 
   const nameOf = id => {
     const s = NATIONAL_SCHEMES.find(n => n.id === id);
@@ -308,7 +325,7 @@ function renderExploreReadout(data, input, baseline, value) {
   const added = now.eligibleIds.filter(id => baseline.eligibleIds.indexOf(id) === -1).map(nameOf);
 
   const supportDelta = now.cashMonthly - baseline.cashMonthly;
-  const ownDelta = value - trueValue;
+  const ownDelta = atTrue ? 0 : value - trueValue;
 
   /* An axis where nothing pays cash at any point draws no chart, and must not
      print a £0 headline either. renderNoResults() exists precisely so that
@@ -327,9 +344,16 @@ function renderExploreReadout(data, input, baseline, value) {
   /* "the same" rather than silence: most of a taper is flat between its steps,
      and someone dragging across one needs to be told nothing happened rather
      than left to assume the panel has stopped working. */
-  const supportPhrase = Math.abs(supportDelta) < 0.5
-    ? "the same cash support as your answers"
-    : `about ${exploreCash(Math.abs(supportDelta))} a month ${supportDelta > 0 ? "more" : "less"} cash support than your answers`;
+  /* Tested on the ROUNDED figure, not the raw one. Everything else in the
+     panel is rounded to the nearest £5 to agree with the headline, so a £2
+     difference came out as "about £0 a month more cash support" — a sentence
+     that is nonsense, and at a glance an alarming kind of nonsense. */
+  const supportRounded = roundTo(Math.abs(supportDelta), 5);
+  const supportPhrase = supportRounded < 5
+    ? (Math.abs(supportDelta) < 0.5
+        ? "the same cash support as your answers"
+        : "about the same cash support as your answers")
+    : `about ${gbp(supportRounded)} a month ${supportDelta > 0 ? "more" : "less"} cash support than your answers`;
 
   let comparison;
   if (ownDelta === 0) {
@@ -383,9 +407,10 @@ function renderExploreReadout(data, input, baseline, value) {
    support" with no mention of the twelve thousand pounds it cost is the same
    inducement read aloud. */
 function exploreAnnouncement(data, input, baseline, value) {
-  const now = exploreEvalAt(input, data.key, value);
   const trueValue = Number(input[data.key]) || 0;
-  const ownDelta = value - trueValue;
+  const atTrue = Math.abs(value - trueValue) < 1;
+  const now = atTrue ? baseline : exploreEvalAt(input, data.key, value);
+  const ownDelta = atTrue ? 0 : value - trueValue;
 
   const dropped = baseline.eligibleIds.filter(id => now.eligibleIds.indexOf(id) === -1);
   const lost = dropped.length
