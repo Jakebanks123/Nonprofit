@@ -507,7 +507,8 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   check('The touch target clears WCAG 2.2 SC 2.5.8 (24px), with room',
     touch2.height >= 44, touch2.height.toFixed(1) + 'px');
 
-  await browser.close();
+  /* NOTE: the shared browser is torn down after section R, not here.
+     Sections P-R still drive `page`; O and S bring their own. */
 
   /* ---------------------------------------------------------------- */
   console.log('\n===== O. WINDOWS HIGH CONTRAST =====\n');
@@ -530,6 +531,162 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
     !!on && !!offTab && (on.width !== offTab.width || on.deco !== offTab.deco),
     JSON.stringify(tabs));
   await hcBrowser.close();
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== P. THE CLIFF WARNING FIRES AT THE CLIFFS =====\n');
+
+  /* The "Overall that would leave the household with less" sentence used to be
+     computed from the CASH total, which made it silent at every income cliff
+     in the app — because the schemes with income cliffs are exactly the ones
+     that never touch the cash total. Warm Home Discount is a one-off credit on
+     an electricity bill, Healthy Start is a card for food and milk. A
+     household on £408 dragged to £409 lost £209 a year and the panel said
+     "the same cash support as your answers, and £1 a month more coming in".
+     Meanwhile dragging DOWN by £1, which costs about 45p, did warn. It was
+     tracking direction of travel, not outcome.
+
+     It now runs on householdValueAnnual(), which explore-core.js documents as
+     never to be printed — and it is not printed here, it decides one boolean,
+     which is the same use findNearMiss() puts it to. */
+  const warnsAt = async (o, value) => {
+    await toResults(page, o);
+    await setSlider(page, value);
+    return text(page, '#exploreReadout');
+  };
+
+  let t = await warnsAt({ age: 26, children: 1, income: 408, savings: 0, housing: 500,
+    checks: ['receivingUC', 'pregnantOrChildUnder4'] }, 409);
+  console.log('  £408 -> £409: ' + t.slice(60, 260));
+  check('One pound over the Healthy Start limit is called out as a loss',
+    /leave the household with less, even though more is coming in/.test(t), t.slice(0, 200));
+  check('and the scheme is named', /no longer be listed for .*Healthy Start/.test(t));
+
+  t = await warnsAt({ income: 1599, checks: ['receivingUC'] }, 1600);
+  console.log('  £1,599 -> £1,600: ' + t.slice(60, 260));
+  check('One pound over the Warm Home Discount limit is called out too',
+    /leave the household with less, even though more is coming in/.test(t), t.slice(0, 200));
+
+  /* The other half of the bug: it fired on moves too small to matter, which
+     is how a warning stops being read. */
+  t = await warnsAt({ age: 26, children: 1, income: 408, savings: 0, housing: 500,
+    checks: ['receivingUC', 'pregnantOrChildUnder4'] }, 407);
+  check('A one-pound drop with no cliff does not warn',
+    !/leave the household with less/.test(t), t.slice(0, 200));
+
+  /* And it must never cry wolf in the direction where the household is ahead. */
+  t = await warnsAt({ checks: ['receivingUC'] }, 7000);
+  check('Earning far more does not warn', !/leave the household with less/.test(t),
+    t.slice(0, 160));
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== Q. THE DEPRIVATION WARNING DOES NOT ACCUSE ANYONE ON SIGHT =====\n');
+
+  /* Savings above the top of the axis leave the thumb clamped, so it sat below
+     the real answer before the reader had touched anything — and the panel
+     opened by lecturing someone with £20,001 about spending savings down,
+     while "Back to the start" sat greyed out saying they had not moved. */
+  for (const savings of [20001, 22000, 40000]) {
+    await toResults(page, { savings });
+    const openState = await page.evaluate(() => {
+      const btn = document.querySelector('[data-explore-axis="savings"]');
+      if (!btn) return null;
+      btn.click();
+      return {
+        warned: /deprivation of capital/i.test(document.getElementById('exploreReadout').textContent),
+        untouched: document.getElementById('exploreResetBtn').disabled
+      };
+    });
+    if (!openState) { console.log(`  £${savings}: no panel`); continue; }
+    console.log(`  £${savings}: warned on open = ${openState.warned}, untouched = ${openState.untouched}`);
+    check(`£${savings}: no lecture before the reader has moved anything`,
+      openState.warned === false);
+    await setSlider(page, 10000);
+    check(`£${savings}: but it does appear once the slider is dragged down`,
+      /deprivation of capital/i.test(await text(page, '#exploreReadout')));
+  }
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== R. NO-CASH AXIS COPY =====\n');
+
+  await toResults(page, { age: 40, adults: 1, children: 0, income: 2500, savings: 0, housing: 0 });
+  const noCashDrag = await page.evaluate(() => {
+    const btn = document.querySelector('[data-explore-axis="savings"]');
+    if (!btn) return null;
+    btn.click();
+    const el = document.getElementById('exploreSlider');
+    el.value = '8000';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return document.getElementById('exploreReadout').textContent.replace(/\s+/g, ' ').trim();
+  });
+  if (noCashDrag) {
+    console.log('  ' + noCashDrag.slice(0, 240));
+    check('An axis with no cash does not then discuss the amount of it',
+      !/cash support as your answers/.test(noCashDrag), noCashDrag.slice(0, 200));
+    check('and still prices the change in savings',
+      /£8,000 more in savings/.test(noCashDrag), noCashDrag.slice(0, 200));
+  }
+
+  await browser.close();
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== S. A SCROLL THAT STARTS ON THE SLIDER =====\n');
+
+  /* The slider is w-full, a band across the whole column on a phone. A native
+     range commits its value the moment a touch starts moving on it, so a flick
+     past the panel used to leave the reader further down the page with the
+     readout showing a hypothetical they never asked for. touch-action:pan-y
+     gave the scroll back but could not un-commit the jump; the pointercancel
+     the browser sends when it takes the gesture is what undoes it. */
+  const touchBrowser = await chromium.launch();
+  const touchCtx = await touchBrowser.newContext({
+    viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true });
+  const touchPage = await touchCtx.newPage();
+  await toResults(touchPage, {});
+  await touchPage.evaluate(() => document.getElementById('exploreSlider').scrollIntoView({ block: 'center' }));
+  await touchPage.waitForTimeout(200);
+
+  const cdp = await touchCtx.newCDPSession(touchPage);
+  const spot = () => touchPage.evaluate(() => {
+    const r = document.getElementById('exploreSlider').getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  const readSlider = () => touchPage.evaluate(() => ({
+    v: Number(document.getElementById('exploreSlider').value),
+    scroll: Math.round(window.scrollY)
+  }));
+
+  let box = await spot();
+  const beforeSwipe = await readSlider();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x, y: box.y }] });
+  for (let i = 1; i <= 8; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: box.x, y: box.y - i * 22 }] });
+    await touchPage.waitForTimeout(16);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await touchPage.waitForTimeout(400);
+  const afterSwipe = await readSlider();
+  console.log(`  vertical swipe: value ${beforeSwipe.v} -> ${afterSwipe.v}, scroll ${beforeSwipe.scroll} -> ${afterSwipe.scroll}`);
+  check('A scroll gesture leaves the slider where it was',
+    afterSwipe.v === beforeSwipe.v, `${beforeSwipe.v} -> ${afterSwipe.v}`);
+  check('and the page actually scrolls', afterSwipe.scroll !== beforeSwipe.scroll,
+    `stuck at ${beforeSwipe.scroll}`);
+
+  await touchPage.evaluate(() => document.getElementById('exploreSlider').scrollIntoView({ block: 'center' }));
+  await touchPage.waitForTimeout(200);
+  box = await spot();
+  const beforeDrag = await readSlider();
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x, y: box.y }] });
+  for (let i = 1; i <= 8; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: box.x + i * 14, y: box.y }] });
+    await touchPage.waitForTimeout(16);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await touchPage.waitForTimeout(300);
+  const afterDrag = await readSlider();
+  console.log(`  sideways drag:  value ${beforeDrag.v} -> ${afterDrag.v}`);
+  check('A real sideways drag still moves it', afterDrag.v !== beforeDrag.v,
+    `stuck at ${beforeDrag.v}`);
+  await touchBrowser.close();
 
   console.log('\n===== SUMMARY =====\n');
   if (problems.length) {

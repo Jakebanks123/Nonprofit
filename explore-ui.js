@@ -93,6 +93,9 @@ function exploreEvalAt(input, axisKey, value) {
   const { national } = evaluateAll(cloneWith(input, axisKey, value));
   return {
     cashMonthly: cashMonthlyAt(national),
+    /* Every scheme counted, cash or not — see the note above the "Overall"
+       sentence in renderExploreReadout(). Never printed. */
+    householdAnnual: householdValueAnnual(national),
     eligibleIds: national.map(r => r.scheme.id)
   };
 }
@@ -300,7 +303,7 @@ function renderExploreChart(data, input, startValue) {
    refuses to print one total and householdValueAnnual() in explore-core.js is
    documented as never being surfaced. So the net is used only to decide
    whether to say "less overall", never to print a figure. */
-function renderExploreReadout(data, input, baseline, value) {
+function renderExploreReadout(data, input, baseline, startValue, value) {
   const { axis } = data;
   const g = exploreGrammar(data);
   const here = exploreFormatValue(axis, value);
@@ -355,23 +358,52 @@ function renderExploreReadout(data, input, baseline, value) {
         : "about the same cash support as your answers")
     : `about ${gbp(supportRounded)} a month ${supportDelta > 0 ? "more" : "less"} cash support than your answers`;
 
+  /* IS THE HOUSEHOLD ACTUALLY WORSE OFF? Measured on householdValueAnnual(),
+     which counts every scheme, and not on the cash total.
+
+     The cash total was the first attempt and it was silent at precisely the
+     cliffs this panel exists to warn about, because the schemes with income
+     cliffs are the ones that never touch it. Warm Home Discount is a one-off
+     credit on an electricity bill; Healthy Start is a card for food and milk.
+     A household on £408 dragged to £409 lost Healthy Start — £209 a year —
+     and the panel said "the same cash support as your answers, and £1 a month
+     more coming in" with no warning at all. Meanwhile dragging DOWN by £1,
+     which costs about 45p, did print the warning. It was tracking the
+     direction of travel rather than the outcome.
+
+     explore-core.js documents householdValueAnnual() as never to be printed,
+     and it is not printed: it decides one boolean. That is the same use
+     findNearMiss() puts it to, and for the same reason — it is the only
+     measure with the cliff schemes in it. Do not "simplify" this back to
+     cashMonthly.
+
+     Thresholded at MATERIAL_ANNUAL_MINIMUM so that nudging the slider one
+     pound, which really does leave the household about 45p worse off, does
+     not produce a warning about it. */
+  const netAnnual = (now.householdAnnual - baseline.householdAnnual) + ownDelta * 12;
+  const worseOff = data.key === "monthlyIncome" && netAnnual < -MATERIAL_ANNUAL_MINIMUM;
+  const worse = !worseOff ? ""
+    : ownDelta > 0
+      /* The cliff, in one sentence. Someone whose pay is going up by £1 needs
+         to be told this more than anyone else who will read this panel. */
+      ? " Overall that would leave the household with less, even though more is coming in."
+      : " Overall that would leave the household with less.";
+
   let comparison;
   if (ownDelta === 0) {
     /* The no-cash sentence above already opens with "At £0, none of the help
        ... is regular cash", so following it with "That is what you told us"
        reads as a reply to a question nobody asked. */
     comparison = noCash ? "" : "That is what you told us.";
-  } else if (data.key === "monthlyIncome") {
-    const own = `${gbp(Math.abs(ownDelta))} a month ${ownDelta > 0 ? "more" : "less"} coming in`;
-    /* Stated only in the direction that could mislead. Where the household
-       ends up ahead the reader can see it from the two figures; where it ends
-       up behind while the support figure went UP, they need telling. */
-    const worse = (ownDelta + supportDelta) < -0.5
-      ? " Overall that would leave the household with less."
-      : "";
-    comparison = `That is ${supportPhrase}, and ${own}.${worse}`;
   } else {
-    comparison = `That is ${supportPhrase}, with ${gbp(Math.abs(ownDelta))} ${ownDelta > 0 ? "more" : "less"} in savings.`;
+    const own = data.key === "monthlyIncome"
+      ? `${gbp(Math.abs(ownDelta))} a month ${ownDelta > 0 ? "more" : "less"} coming in`
+      : `${gbp(Math.abs(ownDelta))} ${ownDelta > 0 ? "more" : "less"} in savings`;
+    /* On an axis with no cash anywhere, "the same cash support as your
+       answers" follows a sentence that has just said there is none of it. */
+    comparison = noCash
+      ? `That is ${own}.${worse}`
+      : `That is ${supportPhrase}, ${data.key === "monthlyIncome" ? "and" : "with"} ${own}.${worse}`;
   }
 
   const changes = [];
@@ -389,7 +421,13 @@ function renderExploreReadout(data, input, baseline, value) {
      is an invitation to do the one thing that reliably backfires, so the
      warning appears the moment it is dragged that way. findNearMiss() in
      explore-core.js refuses to probe this axis at all for the same reason. */
-  const deprivation = (data.key === "savings" && ownDelta < 0) ? `
+  /* Triggered by the thumb moving BELOW WHERE IT STARTED, not below the true
+     answer. Those differ when the answer is off the end of the axis: someone
+     with £20,001 in savings had ownDelta of −£1 the instant they opened the
+     tab, so the panel opened by lecturing them about spending savings down
+     before they had touched anything — while "Back to the start" sat greyed
+     out, the panel's own admission that they had not moved. */
+  const deprivation = (data.key === "savings" && value < startValue) ? `
     <div class="mt-3 rounded-field border border-warn-700/30 bg-warn-50 p-3">
       <p class="text-base text-pretty text-ink"><strong>Spending savings down on purpose does not work.</strong> If money is spent or given away in order to qualify for something, the DWP can decide the claim as though the money were still there. It is called deprivation of capital. The money is gone and the claim is refused anyway.</p>
     </div>` : "";
@@ -547,7 +585,7 @@ function renderExploreBody(input) {
     ${chartFrame}
 
     <div class="mt-4 rounded-field border border-line bg-canvas p-4">
-      <div id="exploreReadout">${renderExploreReadout(data, input, baseline, value)}</div>
+      <div id="exploreReadout">${renderExploreReadout(data, input, baseline, startValue, value)}</div>
       <p class="mt-3">
         <button class="rounded-full border border-line-strong bg-surface px-4 py-2 text-base font-medium whitespace-nowrap text-brand-800 disabled:opacity-50"
                 id="exploreResetBtn" type="button" ${value === startValue ? "disabled" : ""}>Back to the start</button>
@@ -680,7 +718,7 @@ function wireExploreBody(input) {
       if (mark) mark.style.display = value === startValue ? "none" : "";
     }
 
-    readout.innerHTML = renderExploreReadout(data, input, baseline, value);
+    readout.innerHTML = renderExploreReadout(data, input, baseline, startValue, value);
     resetBtn.disabled = value === startValue;
 
     /* The readout itself is NOT a live region. A range input already announces
@@ -703,6 +741,41 @@ function wireExploreBody(input) {
   }
 
   slider.addEventListener("input", e => apply(Number(e.target.value), true));
+
+  /* A native range commits a new value the moment a touch starts moving on it
+     — it jumps to wherever the finger is, before anyone knows whether that
+     finger is going sideways or down the page. touch-action:pan-y hands the
+     vertical pan back to the browser, which is why the page scrolls again,
+     but it cannot un-commit that jump: somebody flicking past the panel
+     arrived further down the page with the readout quietly showing a
+     hypothetical they never asked for.
+
+     When the browser takes a gesture over it cancels the POINTER on this
+     element — Chromium fires pointercancel and then keeps delivering
+     touchmove, so touchcancel is the wrong thing to listen for; that was
+     tried first and never fired. A cancel is the signal that the finger was
+     scrolling rather than dragging, so the value goes back to where it was.
+     A real sideways drag never cancels and is untouched by any of this.
+
+     Armed for touch only. A mouse press on the track is SUPPOSED to jump to
+     the click — that is how every slider on the web behaves. */
+  let valueBeforeTouch = null;
+  const disarm = () => { valueBeforeTouch = null; };
+  const undoTouchJump = () => {
+    if (valueBeforeTouch !== null && Number(slider.value) !== valueBeforeTouch) {
+      slider.value = String(valueBeforeTouch);
+      apply(valueBeforeTouch, true);
+    }
+    valueBeforeTouch = null;
+  };
+  slider.addEventListener("pointerdown", e => {
+    valueBeforeTouch = e.pointerType === "touch" ? Number(slider.value) : null;
+  }, { passive: true });
+  slider.addEventListener("pointerup", disarm, { passive: true });
+  slider.addEventListener("touchend", disarm, { passive: true });
+  slider.addEventListener("pointercancel", undoTouchJump, { passive: true });
+  /* Belt and braces for an engine that cancels the touch instead. */
+  slider.addEventListener("touchcancel", undoTouchJump, { passive: true });
 
   /* step="1" is what lets the thumb land on the user's own answer, but it also
      makes a single arrow press worth £1 — 7,000 of them to cross the income
