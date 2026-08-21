@@ -63,6 +63,17 @@ async function setSlider(page, value) {
 
 /* The panel rounds to the nearest £5 to agree with the headline, so an exact
    pound figure from evaluateAll will not appear verbatim. */
+/* The panel opens on whichever axis has the cliff, so any check about
+   income-specific behaviour — the £25 step, the money formatting, the thumb
+   landing on an off-grid income — has to ask for that axis rather than assume
+   it. Assuming it is what broke eleven checks the moment the default changed. */
+const selectAxis = async (page, key) => {
+  await page.evaluate(k => {
+    const btn = document.querySelector(`[data-explore-axis="${k}"]`);
+    if (btn && btn.getAttribute('aria-pressed') !== 'true') btn.click();
+  }, key);
+};
+
 const gbpish = n => '£' + (Math.round(n / 5) * 5).toLocaleString('en-GB');
 
 const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, ' ').trim();
@@ -105,9 +116,22 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   /* Going back and returning must not leave the slider parked on 4000. */
   await page.click('#restartBtn');
   for (let i = 0; i < 4; i++) await page.click('#nextBtn');
-  const resetOnReturn = await page.evaluate(() => document.getElementById('exploreSlider').value);
+  /* Asked of whichever axis the panel opened on, not assumed to be income:
+     the panel now opens on the axis that has the cliff, so for this household
+     that is Savings and the answer to return to is £500, not £1,100. */
+  const resetOnReturn = await page.evaluate(() => {
+    const axis = exploreState.axis;
+    return {
+      value: document.getElementById('exploreSlider').value,
+      axis,
+      answer: String(exploreState.input[axis])
+    };
+  });
   check('Slider returns to the answers after going back through the wizard',
-    Number(resetOnReturn) === 1100, 'got ' + resetOnReturn);
+    resetOnReturn.value === resetOnReturn.answer,
+    `${resetOnReturn.axis} answer is ${resetOnReturn.answer}, slider showed ${resetOnReturn.value}`);
+  check('and it is definitely not still parked on the hypothetical',
+    Number(resetOnReturn.value) !== 4000, 'still on 4000');
 
   /* ---------------------------------------------------------------- */
   console.log('\n===== C. THE £16,000 CAPITAL LIMIT, EXACTLY =====\n');
@@ -123,7 +147,8 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   check('Savings axis renders a slider', await page.$('#exploreSlider') !== null);
 
   const savingsCliffs = await page.evaluate(() =>
-    exploreCache.savings.cliffs.map(c => ({ at: c.at, name: c.name, exact: c.exact })));
+    exploreDataFor(exploreState.input, 'savings').cliffs
+      .map(c => ({ at: c.at, name: c.name, exact: c.exact })));
   console.log('  cliffs found: ' + JSON.stringify(savingsCliffs));
 
   const uc = savingsCliffs.find(c => /Universal Credit/i.test(c.name));
@@ -181,6 +206,7 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   console.log('\n===== F. KEYBOARD AND SCREEN READER =====\n');
 
   await toResults(page, {});
+  await selectAxis(page, 'monthlyIncome');
 
   const labelled = await page.evaluate(() => {
     const el = document.getElementById('exploreSlider');
@@ -248,7 +274,9 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
      thumb can hold. The panel has to agree with the headline anyway. */
   const offGrid = [1237, 1263, 1591, 811, 1200.756, 1199.5];
   for (const income of offGrid) {
+    /* These households have no income cliff, so the panel opens on Savings. */
     await toResults(page, { income });
+    await selectAxis(page, 'monthlyIncome');
     const r = await page.evaluate(() => {
       const big = document.querySelector('.results-summary .text-4xl');
       return {
@@ -298,7 +326,8 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   } else {
     const savingsAxisCliffs = await page.evaluate(() => {
       document.querySelector('[data-explore-axis="savings"]').click();
-      return exploreCache.savings.cliffs.map(c => ({ at: c.at, name: c.name, kind: c.kind }));
+      return exploreDataFor(exploreState.input, 'savings').cliffs
+        .map(c => ({ at: c.at, name: c.name, kind: c.kind }));
     });
     console.log('  cliffs found: ' + JSON.stringify(savingsAxisCliffs));
     check('Non-cash schemes still register as cliffs',
@@ -333,7 +362,8 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
     await toResults(page, o);
     if (!(await page.$('#explorePanel'))) return null;
     return page.evaluate(() =>
-      (exploreCache.monthlyIncome || { cliffs: [] }).cliffs.map(c => c.name + ' @ ' + c.at + (c.exact ? '' : ' approx')));
+      exploreDataFor(exploreState.input, 'monthlyIncome').cliffs
+        .map(c => c.name + ' @ ' + c.at + (c.exact ? '' : ' approx')));
   };
 
   // Warm Home Discount: monthlyIncome < 1200 + children * 200, with UC.
@@ -407,7 +437,7 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   /* The screen-reader line has to carry the same counterweight — the figure
      read aloud with no mention of what it cost is the same inducement. */
   const spoken = await page.evaluate(() =>
-    exploreAnnouncement(exploreCache.monthlyIncome, exploreState.input,
+    exploreAnnouncement(exploreDataFor(exploreState.input, 'monthlyIncome'), exploreState.input,
       exploreBaseline(exploreState.input, 'monthlyIncome'), 0));
   console.log('  spoken: ' + spoken);
   check('The spoken summary names the cost too',
@@ -583,6 +613,74 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
     t.slice(0, 160));
 
   /* ---------------------------------------------------------------- */
+  console.log('\n===== P1b. THE PANEL OPENS WHERE THE CLIFF IS =====\n');
+
+  /* The axis was hardcoded to income. For a measured 23% of households that
+     meant opening on a smooth line while the savings tab held a real cliff,
+     nearly always the £16,000 Universal Credit one — the reader had to guess
+     that the content was behind the other tab. Income still wins a tie: it is
+     the figure people expect to change, where savings crossing £16,000 is the
+     thing they have not thought about. */
+  const opensOn = async o => {
+    await toResults(page, o);
+    return page.evaluate(() => {
+      const on = document.querySelector('[data-explore-axis][aria-pressed="true"]');
+      const cliffs = k => exploreDataFor(exploreState.input, k).cliffs.length;
+      return {
+        axis: on && on.dataset.exploreAxis,
+        slider: Number(document.getElementById('exploreSlider').value),
+        income: cliffs('monthlyIncome'), savings: cliffs('savings')
+      };
+    });
+  };
+
+  let o = await opensOn({});
+  console.log(`  2 children on UC: income ${o.income} cliffs, savings ${o.savings} -> opens on ${o.axis}`);
+  check('A household whose only cliff is on savings opens on Savings',
+    o.income === 0 && o.savings > 0 && o.axis === 'savings', JSON.stringify(o));
+  check('and the slider starts at their real savings, not their income',
+    o.slider === 500, 'slider ' + o.slider);
+
+  o = await opensOn({ age: 26, children: 1, income: 408, savings: 0, housing: 500,
+    checks: ['receivingUC', 'pregnantOrChildUnder4'] });
+  console.log(`  pregnant +1 child £408: income ${o.income}, savings ${o.savings} -> opens on ${o.axis}`);
+  check('Cliffs on both axes still opens on Monthly income',
+    o.income > 0 && o.savings > 0 && o.axis === 'monthlyIncome', JSON.stringify(o));
+  check('with the slider on their real income', o.slider === 408, 'slider ' + o.slider);
+
+  o = await opensOn({ age: 70, adults: 1, children: 0, income: 900, savings: 2000, housing: 400 });
+  console.log(`  pension age £900: income ${o.income}, savings ${o.savings} -> opens on ${o.axis}`);
+  check('A pension-age household also opens where its cliff is',
+    o.axis === (o.income === 0 && o.savings > 0 ? 'savings' : 'monthlyIncome'), JSON.stringify(o));
+
+  /* ---------------------------------------------------------------- */
+  console.log('\n===== P1c. THE SWEEP CACHE CANNOT SERVE THE WRONG HOUSEHOLD =====\n');
+
+  /* exploreDataFor() used to key on the axis alone, which was correct only
+     because renderExplorePanel() clears the cache before calling it — a
+     guarantee living in a different function from the one relying on it. A
+     direct caller got another household's figures with no error and no way to
+     notice. It caught the first script that ever called it directly, which
+     reported a confident 100% across 12,544 households, every one of them the
+     first household's sweep. */
+  const cached = await page.evaluate(() => {
+    const a = { council: 'Leeds City Council', age: 29, adults: 1, children: 2,
+      monthlyIncome: 1100, savings: 500, housingCosts: 750, receivingUC: true };
+    const b = { ...a, children: 0, monthlyIncome: 3200 };
+    /* Deliberately NO cache clear between these - that is the point. */
+    return {
+      first: Math.round(exploreDataFor(a, 'monthlyIncome').maxCash),
+      second: Math.round(exploreDataFor(b, 'monthlyIncome').maxCash),
+      firstAgain: Math.round(exploreDataFor(a, 'monthlyIncome').maxCash)
+    };
+  });
+  console.log('  ' + JSON.stringify(cached));
+  check('A second household is not served the first one\'s sweep',
+    cached.first !== cached.second, JSON.stringify(cached));
+  check('and the first household still caches correctly',
+    cached.first === cached.firstAgain, JSON.stringify(cached));
+
+  /* ---------------------------------------------------------------- */
   console.log('\n===== P2. PENCE MUST NOT HIDE A CLIFF =====\n');
 
   /* Nothing validates pence out of the savings field, and a bank balance has
@@ -755,7 +853,8 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
       slider: shown('exploreSlider'), hint: shown('exploreSliderHint'),
       readoutCard: shown('exploreReadoutCard'), cursor: shown('exploreCursor'),
       chart: shown('exploreChart'), startMark: shown('exploreStartMark'),
-      ink: (panel.innerText || '').replace(/\s+/g, ' ').trim()
+      ink: (panel.innerText || '').replace(/\s+/g, ' ').trim(),
+      axisLabel: SWEEP_AXES[exploreState.axis].label
     };
   });
   await page.emulateMedia({ media: 'screen' });
@@ -774,7 +873,8 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
   check('marked at the household\'s real answer',
     printed.startMark === 'shown', 'start mark was ' + printed.startMark);
   check('the axis it is drawn against is still named',
-    /Monthly income/.test(printed.ink), printed.ink.slice(0, 200));
+    new RegExp(printed.axisLabel).test(printed.ink),
+    `axis is ${printed.axisLabel}; ink: ${printed.ink.slice(0, 160)}`);
   check('and the "where support stops" section still prints',
     /Where support stops/.test(printed.ink), printed.ink.slice(0, 300));
 

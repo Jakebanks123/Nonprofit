@@ -120,9 +120,22 @@ function exploreSignature(input) {
   return JSON.stringify(input);
 }
 
-/* Everything the panel draws for one axis. */
+/* Everything the panel draws for one axis.
+
+   Keyed by the ANSWERS as well as the axis. Keying on the axis alone was safe
+   only because renderExplorePanel() happens to clear the cache before it calls
+   this, which is a guarantee living in a different function from the one that
+   depends on it — a second caller got another household's figures back with no
+   error and no way to notice. That is not a theoretical worry: it caught the
+   first person to call this directly, which was a script measuring how often
+   the panel opens on the right axis. It reported a confident 100% for 12,544
+   households, all of them the first household's sweep.
+
+   The clear in renderExplorePanel() stays, so this cannot grow without bound.
+   Between them, one bounds the size and one makes a wrong answer impossible. */
 function exploreDataFor(input, axisKey) {
-  if (exploreCache[axisKey]) return exploreCache[axisKey];
+  const cacheKey = `${axisKey}|${exploreSignature(input)}`;
+  if (exploreCache[cacheKey]) return exploreCache[cacheKey];
   const axis = SWEEP_AXES[axisKey];
   const data = {
     key: axisKey,
@@ -131,7 +144,7 @@ function exploreDataFor(input, axisKey) {
     cliffs: findCliffs(input, axisKey, axis)
   };
   data.maxCash = data.series.reduce((m, p) => Math.max(m, p.cashMonthly), 0);
-  exploreCache[axisKey] = data;
+  exploreCache[cacheKey] = data;
   return data;
 }
 
@@ -631,18 +644,36 @@ function renderExplorePanel(input, nationalResults) {
      Safe to do here because render() rebuilds the results step exactly once
      per entry — the panel updates its own subtree afterwards and never calls
      render() again, or this would fight the slider on every drag. */
-  exploreState.axis = "monthlyIncome";
-  exploreState.value = exploreStartValue(SWEEP_AXES.monthlyIncome, input.monthlyIncome);
   /* Bumped on every entry to the results screen so a debounced announcement
      queued by the previous one cannot speak into this one. */
   exploreState.generation++;
 
-  const worthShowing = Object.keys(SWEEP_AXES).some(key => {
+  const axisKeys = Object.keys(SWEEP_AXES);
+  const surveyed = axisKeys.map(key => {
     const d = exploreDataFor(input, key);
-    if (d.cliffs.length) return true;
-    return d.series.some(p => Math.abs(p.cashMonthly - d.series[0].cashMonthly) > 0.5);
+    return {
+      key,
+      cliffs: d.cliffs.length,
+      moves: d.series.some(p => Math.abs(p.cashMonthly - d.series[0].cashMonthly) > 0.5)
+    };
   });
-  if (!worthShowing) return "";
+  if (!surveyed.some(a => a.cliffs || a.moves)) return "";
+
+  /* WHICH TAB TO OPEN ON. Income used to be hardcoded, and for a measured 23%
+     of households that meant opening on a smooth line while the savings tab
+     held a real cliff — usually the £16,000 Universal Credit one. The cliff is
+     the entire point of this panel, and a quarter of readers had to guess that
+     the content was behind the other tab.
+
+     Income still wins when both axes have cliffs, or when neither does. It is
+     the figure people actually expect to change — a pay rise, losing shifts —
+     whereas savings crossing £16,000 is the thing they have not thought about.
+     Only when income has nothing to show and savings does is the default
+     overridden. */
+  const withCliffs = surveyed.filter(a => a.cliffs);
+  const chosen = withCliffs.length === 1 ? withCliffs[0].key : "monthlyIncome";
+  exploreState.axis = chosen;
+  exploreState.value = exploreStartValue(SWEEP_AXES[chosen], input[chosen]);
   exploreState.input = input;
 
   const tabs = Object.keys(SWEEP_AXES).map(key => {
