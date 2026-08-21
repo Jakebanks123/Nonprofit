@@ -154,6 +154,13 @@ function findCliffs(input, variable, range) {
   const series = sweep(input, variable, axis);
   const cliffs = [];
 
+  /* The household's own answer, used only to mark which cliffs are behind
+     them. Read from the input rather than the axis, because the answer can be
+     off the end of it — savings are clamped to £20,000 for plotting while
+     sanitiseInput accepts millions, and someone holding £45,000 is past every
+     cliff on the chart. */
+  const answer = Number(input[variable]) || 0;
+
   for (let i = 1; i < series.length; i++) {
     const before = series[i - 1];
     const after = series[i];
@@ -190,6 +197,21 @@ function findCliffs(input, variable, range) {
       cliffs.push({
         at: edge,
         exact: at != null,
+        /* Is this behind them already? The caller MUST vary its wording on
+           this. A cliff stated in the future tense to someone already past it
+           is not a warning, it is an instruction: "Universal Credit stops once
+           your savings go above £16,000, at £16,000 it is still worth about
+           £246 a month", shown unprompted to someone holding £45,000, reads
+           backwards as "spend £29,000 and collect £246 a month".
+
+           That is deprivation of capital, and reg 50 of the UC Regs 2013
+           means it does not even work — capital disposed of to secure a
+           benefit is still counted as held, so the money is gone and the
+           claim is refused anyway. findNearMiss() below excludes the savings
+           axis "deliberately and permanently" for precisely this reason; this
+           function reached the same place from the other direction and needs
+           the same care. */
+        alreadyPast: answer > edge,
         schemeId: id,
         name: scheme ? scheme.name : id,
         kind: (scheme && scheme.kind) || "cash",

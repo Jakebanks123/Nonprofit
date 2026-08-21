@@ -160,13 +160,13 @@ function exploreDataFor(input, axisKey) {
    An axis with no entry here falls back to singular rather than throwing: bad
    grammar on a results screen is a blemish, a thrown error is a blank page. */
 const EXPLORE_GRAMMAR = {
-  monthlyIncome: { noun: "monthly income", goes: "goes", rise: "rises", change: "changes" },
-  savings: { noun: "savings", goes: "go", rise: "rise", change: "change" }
+  monthlyIncome: { noun: "monthly income", goes: "goes", rise: "rises", change: "changes", is: "is" },
+  savings: { noun: "savings", goes: "go", rise: "rise", change: "change", is: "are" }
 };
 
 function exploreGrammar(data) {
   return EXPLORE_GRAMMAR[data.key]
-    || { noun: data.axis.label.toLowerCase(), goes: "goes", rise: "rises", change: "changes" };
+    || { noun: data.axis.label.toLowerCase(), goes: "goes", rise: "rises", change: "changes", is: "is" };
 }
 
 /* Both axes are money today, but SWEEP_AXES carries a unit so that adding a
@@ -516,6 +516,29 @@ function renderExploreCliffs(data, hasChart) {
   }
 
   const items = cliffs.map(c => {
+    /* A cliff the household is already past is not a warning about what might
+       happen, and it must not be written as one. "Universal Credit stops once
+       your savings go above £16,000. At £16,000 it is still worth about £246 a
+       month", printed unprompted to someone holding £45,000, reads backwards
+       as an offer: spend £29,000 and collect £246 a month. That is deprivation
+       of capital, it does not work (reg 50 UC Regs 2013 counts the money as
+       still held), and findNearMiss() refuses to say it — so this cannot say
+       it either, just because it arrived by a different route.
+
+       Past tense, no conditional, and crucially no figure attached. The
+       threshold itself stays: it is a published rule, it explains why the
+       scheme is missing from the list above, and withholding it from the
+       person it applies to helps nobody. What goes is the price tag, which is
+       the half that turns a fact into an inducement. Neutral styling too — a
+       red warning box about something behind you is just alarm. */
+    if (c.alreadyPast) {
+      const past = exploreFormatValue(axis, c.at);
+      return `
+      <li class="rounded-field border border-line bg-canvas p-3">
+        <p class="text-base text-pretty text-muted">Your ${g.noun} ${g.is} already above <strong>${past}</strong>, the point where <strong>${c.name}</strong> stops.</p>
+      </li>`;
+    }
+
     /* bisect() returns null when it cannot prove a single crossing, and
        findCliffs falls back to the coarse sample. Saying "around" there is the
        difference between a figure someone can act on and one that could be out

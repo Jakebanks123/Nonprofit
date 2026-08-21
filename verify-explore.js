@@ -190,16 +190,105 @@ const text = async (page, sel) => (await page.textContent(sel)).replace(/\s+/g, 
     justUnder !== justOver);
 
   /* ---------------------------------------------------------------- */
+  console.log('\n===== D2. A CLIFF ALREADY BEHIND YOU IS NOT A WARNING =====\n');
+
+  /* findCliffs sweeps the whole axis, so it returns points the household is
+     already past. Stated in the future tense with a price on them, those stop
+     being warnings and become instructions. "Universal Credit stops once your
+     savings go above £16,000. At £16,000 it is still worth about £246 a
+     month", printed unprompted to someone holding £45,000, reads backwards as
+     "spend £29,000 and collect £246 a month".
+
+     That is deprivation of capital. Reg 50 of the UC Regs 2013 means it does
+     not even work — capital disposed of to secure a benefit is still counted
+     as held, so the money is gone and the claim is refused anyway.
+     findNearMiss() excludes the savings axis "deliberately and permanently"
+     over this exact risk; findCliffs arrived at the same place from the other
+     direction. */
+  const cliffList = async (o, axis) => {
+    await toResults(page, o);
+    return page.evaluate(a => {
+      const panel = document.getElementById('explorePanel');
+      if (!panel) return { panel: false, items: [] };
+      const btn = panel.querySelector(`[data-explore-axis="${a}"]`);
+      if (btn && btn.getAttribute('aria-pressed') !== 'true') btn.click();
+      const ul = document.getElementById('explorePanel').querySelector('ul');
+      return {
+        panel: true,
+        items: ul ? Array.from(ul.querySelectorAll('li')).map(li => li.textContent.replace(/\s+/g, ' ').trim()) : []
+      };
+    }, axis);
+  };
+
+  let cl = await cliffList({ savings: 45000, income: 1100, children: 2, housing: 750,
+    checks: ['receivingUC'] }, 'savings');
+  console.log('  £45,000 savings: ' + JSON.stringify(cl.items));
+  const ucPast = cl.items.find(t => /Universal Credit/.test(t)) || '';
+  check('A cliff behind them is stated in the past tense',
+    /already above/.test(ucPast), ucPast);
+  check('and carries no price tag to go back for',
+    !/still worth/.test(ucPast), ucPast);
+  check('and is not phrased as something that will happen',
+    !/stops once your savings go above/.test(ucPast), ucPast);
+
+  cl = await cliffList({ age: 45, adults: 1, children: 0, income: 2500, savings: 0,
+    housing: 550, checks: ['hasDisabilityOrHealthCondition'] }, 'monthlyIncome');
+  console.log('  £2,500 income:   ' + JSON.stringify(cl.items));
+  const whdPast = cl.items.find(t => /Warm Home Discount/.test(t)) || '';
+  check('Same on the income axis',
+    /already above/.test(whdPast) && !/still worth/.test(whdPast), whdPast);
+  check('with the right verb for the noun',
+    /Your monthly income is already above/.test(whdPast), whdPast);
+
+  /* The warning itself must survive intact for everyone it is actually a
+     warning for — this is the half that earns the feature. */
+  cl = await cliffList({ savings: 500, income: 1100, children: 2, housing: 750,
+    checks: ['receivingUC'] }, 'savings');
+  console.log('  £500 savings:    ' + JSON.stringify(cl.items));
+  const ucAhead = cl.items.find(t => /Universal Credit/.test(t)) || '';
+  check('A cliff ahead of them still gets the full warning',
+    /stops once your savings go above/.test(ucAhead) && /still worth/.test(ucAhead), ucAhead);
+
+  /* One of each, in one list. */
+  cl = await cliffList({ age: 70, adults: 1, children: 0, income: 1010, savings: 14000,
+    housing: 0 }, 'savings');
+  console.log('  £14,000, age 70: ' + JSON.stringify(cl.items));
+  const behind = cl.items.filter(t => /already above/.test(t));
+  const ahead = cl.items.filter(t => /stops once/.test(t));
+  check('A household between two cliffs gets one of each wording',
+    behind.length >= 1 && ahead.length >= 1,
+    `${behind.length} behind, ${ahead.length} ahead: ${JSON.stringify(cl.items)}`);
+  check('and only the one ahead of them carries a figure',
+    behind.every(t => !/still worth/.test(t)) && ahead.some(t => /still worth/.test(t)),
+    JSON.stringify(cl.items));
+
+  /* ---------------------------------------------------------------- */
   console.log('\n===== E. RESET =====\n');
 
+  /* Sets up its own state. This section used to inherit a moved slider from
+     whichever section happened to run before it, which is not a dependency
+     anyone declared — inserting a section above it turned "reset is enabled"
+     red without touching reset. */
+  await toResults(page, {});
+  const beforeMove = await page.evaluate(() => document.getElementById('exploreResetBtn').disabled);
+  check('Reset starts disabled, because nothing has moved', beforeMove === true);
+
+  await setSlider(page, 9000);
   const resetDisabledAfterMove = await page.evaluate(() => document.getElementById('exploreResetBtn').disabled);
   check('Reset is enabled once the slider has moved', resetDisabledAfterMove === false);
+
   await page.click('#exploreResetBtn');
+  /* Read the answer off the state rather than hardcoding it: the panel opens
+     on whichever axis carries the cliff, so the figure to return to is that
+     axis's answer, not always the income one. */
   const afterReset = await page.evaluate(() => ({
     value: Number(document.getElementById('exploreSlider').value),
+    answer: Number(exploreState.input[exploreState.axis]),
+    axis: exploreState.axis,
     disabled: document.getElementById('exploreResetBtn').disabled
   }));
-  check('Reset returns the slider to the answers', afterReset.value === 500, 'got ' + afterReset.value);
+  check('Reset returns the slider to the answers', afterReset.value === afterReset.answer,
+    `${afterReset.axis} answer is ${afterReset.answer}, slider showed ${afterReset.value}`);
   check('Reset disables itself once back at the start', afterReset.disabled === true);
 
   /* ---------------------------------------------------------------- */
