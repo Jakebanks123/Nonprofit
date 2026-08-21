@@ -83,7 +83,7 @@ and nothing is stored.
 
 ## Tests
 
-All five suites run together and take about five seconds:
+All six suites run together and take about five seconds:
 
 ```bash
 npm test
@@ -103,8 +103,9 @@ npm run test:maths        # eligibility maths vs hand-computed DWP rules
 npm run test:edgecases    # negative/extreme/NaN input handling
 npm run test:ui           # wizard flow, navigation, accessibility, mobile layout
 npm run test:keyboard     # keyboard-only operation, scheme data sanity
+npm run test:explore      # what-if panel and cliff-edge chart
 npm run test:scenarios    # end-to-end household scenarios
-npm run test:browser      # the three Playwright suites only
+npm run test:browser      # the four Playwright suites only
 ```
 
 Every suite exits non-zero when it finds something, so a red run means a real

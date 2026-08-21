@@ -61,8 +61,8 @@ Read these before starting work. They are in the repo root.
 > its browser once, via `npx playwright install chromium`.
 >
 > `verify-explore.js` is the sixth suite, added 21 Aug 2026 with the what-if
-> panel. `README.md` and a few code comments still say "five suites" and "the
-> three Playwright suites" — they predate it; trust `package.json`.
+> panel. Where any doc and `package.json` disagree on what runs, `package.json`
+> is the authority.
 >
 > Every suite exits non-zero when it finds something, so a red run means
 > something is genuinely wrong — do not wave it through. That was not always

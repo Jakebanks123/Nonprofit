@@ -7,7 +7,8 @@
 
    No DOM here. app.js renders; this file only computes. Loaded as a classic
    script between data/schemes.js and app.js, and pulled into the vm context
-   by verify-maths.cjs and verify-edgecases.cjs the same way. */
+   by verify-maths.cjs, verify-edgecases.cjs and verify-keyboard.js the same
+   way. */
 
 /* The single eligibility pass. computeResults() in app.js calls this rather
    than mapping over the schemes itself, so the results screen and the explore
