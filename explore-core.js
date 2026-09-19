@@ -22,7 +22,12 @@ function evaluateAll(input) {
      the only ones in the council section whose existence is a funded fact
      rather than hand research, and they apply to every English council, so
      they are the part of this section most worth reading first. */
-  const localSchemes = COUNCIL_WIDE_SCHEMES.concat(LOCAL_SCHEMES[input.council] || []);
+  /* Disputed entries are filtered here rather than at render, so the results
+     screen and the what-if tools cannot disagree about what exists — the same
+     reason this function is shared at all. */
+  const localSchemes = COUNCIL_WIDE_SCHEMES
+    .concat(LOCAL_SCHEMES[input.council] || [])
+    .filter(scheme => !isWithheldScheme(scheme));
   const local = localSchemes
     .map(scheme => ({ scheme, result: scheme.evaluate(input) }))
     .filter(r => r.result.eligible);

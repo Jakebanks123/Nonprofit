@@ -22,6 +22,7 @@ const combined = ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'ap
   .join('\n;\n')
   + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCIL_WIDE_SCHEMES, COUNCILS,
       CRF_DISTRICT_HOUSING_EXIT, crfDistrictHousingExitPassed, isEnglishCouncil,
+      isWithheldScheme, CRF_COUNCIL_PAGES,
       WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT,
       ALL_ENGLAND_COUNCILS, ENGLAND_POSTCODE_DATA, matchOfflineCouncil,
       resolveCouncilByName, sanitiseInput, gbp, evaluateAll, sweep, bisect, findCliffs, findNearMiss, SWEEP_AXES, RATES_TAX_YEAR, ukTaxYearOf, ratesStaleness });`;
@@ -773,6 +774,92 @@ check('CTS working-age: hidden for £8,000/mo with £200,000 saved',
 check('CTS working-age: still shows no figure below the limit',
   ctsWorkingAge({ savings: 3000, monthlyIncome: 500 }).amount ? 1 : 0, 0, 0,
   'no accurate per-council figure exists; hiding the signpost must not become calculating one');
+
+console.log('\n=========== WITHHELD ENTRIES ARE NOT SHOWN ===========\n');
+
+/* A disputed entry is one somebody checked and could not support. It stays in
+   the data so the record of the claim survives, but the app says nothing about
+   it. Hiding rather than showing is the direction this app errs in everywhere
+   else: a scheme we cannot stand behind is worth less than the trust lost by
+   sending someone to look for something that may not exist.
+
+   `unchecked` is deliberately NOT hidden — nobody has looked at those yet, and
+   hiding them would empty the council section on the strength of work not
+   having been done rather than evidence. */
+{
+  const withheld = [];
+  const unchecked = [];
+  Object.entries(app.LOCAL_SCHEMES).forEach(([council, arr]) => arr.forEach(sc => {
+    const st = sc.verification.status;
+    if (st === 'disputed' || st === 'unsupported') withheld.push({ council, id: sc.id, status: st });
+    if (st === 'unchecked') unchecked.push({ council, id: sc.id });
+  }));
+
+  // Vacuity: with nothing withheld in the data, everything below passes trivially.
+  check('WITHHELD: the data still contains at least one disputed or unsupported entry to test with',
+    withheld.length > 0 ? 1 : 0, 1, 0,
+    'if this goes to zero the checks below stop testing anything — pick a different fixture or retire them');
+
+  const shownFor = council => app.evaluateAll(app.sanitiseInput(baseInput({
+    council, children: 1, monthlyIncome: 500, housingCosts: 600, receivingUC: true
+  }))).local.map(r => r.scheme.id);
+
+  withheld.forEach(d => {
+    check('WITHHELD (' + d.status + '): ' + d.id + ' is not shown to users',
+      shownFor(d.council).includes(d.id) ? 1 : 0, 0, 0,
+      d.status === 'disputed'
+        ? "the council's own site contradicts this claim"
+        : 'a proper search found no evidence for this scheme anywhere');
+    check('WITHHELD (' + d.status + '): ' + d.id + ' is still kept in the data',
+      app.LOCAL_SCHEMES[d.council].some(sc => sc.id === d.id) ? 1 : 0, 1, 0,
+      'deleting it would invite someone re-adding it later from the same bad source');
+  });
+
+  // Hiding must apply to disputed only, never to merely unverified entries.
+  if (unchecked.length) {
+    const u = unchecked[0];
+    check('WITHHELD: an unchecked entry (' + u.id + ') is still shown',
+      shownFor(u.council).includes(u.id) ? 1 : 0, 1, 0,
+      'nobody has checked it yet; that is not evidence against it');
+  } else {
+    console.log('  (no unchecked entries left in the data, so the "unchecked is still shown" case is not exercised)');
+  }
+
+  /* The Crisis and Resilience Fund entries apply to every English council, so
+     their own url is the gov.uk council finder. Where the council publishes
+     its own CRF page the result names it instead. These five replaced
+     per-council entries that named schemes which no longer exist. */
+  /* The expected domains are hand-written HERE, not read from the data. The
+     first version of this check compared the result against CRF_COUNCIL_PAGES
+     — the same map it was testing — so pointing Camden at a Hackney URL passed
+     clean. A test that reads its expectation from the thing under test cannot
+     fail, which is the flaw this suite exists to prevent. */
+  const CRF_EXPECTED_HOST = {
+    manchester: 'www.manchester.gov.uk',
+    nottingham: 'www.nottinghamcity.gov.uk',
+    westminster: 'www.westminster.gov.uk',
+    camden: 'www.camden.gov.uk',
+    hackney: 'www.hackney.gov.uk'
+  };
+  const crisis = app.COUNCIL_WIDE_SCHEMES.find(sc => sc.id === 'crf-crisis-payment');
+  Object.keys(CRF_EXPECTED_HOST).forEach(council => {
+    const r = crisis.evaluate(app.sanitiseInput(baseInput({ council })));
+    const host = (String(r.url || '').match(/^https:\/\/([^\/]+)/) || [])[1] || '';
+    check('CRF: ' + council + ' links to a page on ' + CRF_EXPECTED_HOST[council],
+      host === CRF_EXPECTED_HOST[council] ? 1 : 0, 1, 0,
+      'got ' + (r.url || '(no url)'));
+  });
+  // And every council named in the map must be one we have an expectation for.
+  Object.keys(app.CRF_COUNCIL_PAGES).forEach(council => {
+    check('CRF: ' + council + ' is covered by a hand-written expected host',
+      CRF_EXPECTED_HOST[council] ? 1 : 0, 1, 0,
+      'a new council in CRF_COUNCIL_PAGES needs its domain added to this test');
+  });
+  const fallback = crisis.evaluate(app.sanitiseInput(baseInput({ council: 'leeds' })));
+  check('CRF: a council with no known page falls back to the gov.uk finder',
+    fallback.url ? 1 : 0, 0, 0,
+    'renderSchemeCard uses scheme.url when the result names none');
+}
 
 console.log('\n=========== SUMMARY ===========\n');
 if (!findings.length) {

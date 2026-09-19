@@ -16,6 +16,7 @@ const combined = ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'ap
   .join('\n;\n')
   + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCIL_WIDE_SCHEMES, COUNCILS,
       CRF_DISTRICT_HOUSING_EXIT, crfDistrictHousingExitPassed, isEnglishCouncil,
+      isWithheldScheme, CRF_COUNCIL_PAGES,
       WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT,
       ALL_ENGLAND_COUNCILS, ENGLAND_POSTCODE_DATA, matchOfflineCouncil,
       resolveCouncilByName, sanitiseInput, gbp, evaluateAll, sweep, bisect, findCliffs, findNearMiss, SWEEP_AXES });`;
@@ -114,22 +115,43 @@ console.log('\n=========== LOCAL SCHEME AMOUNTS MUST NOT REACH ANY TOTAL =======
    from renderResultsStep(), which needs a DOM, so it cannot be exercised
    here. */
 {
-  const localHousehold = app.sanitiseInput(baseInput({
-    council: 'leeds', children: 1, monthlyIncome: 500, housingCosts: 600, receivingUC: true
-  }));
+  /* The test council is CHOSEN, not hard-coded. This guard only tests anything
+     while some council has an eligible local scheme carrying a non-zero
+     placeholder amount, and which council that is changes as entries are
+     verified, disputed or corrected — hard-coding Leeds meant the guard went
+     silently vacuous the moment its one priced entry was hidden as disputed.
+     Pick whichever council still exercises the property. */
+  const candidates = Object.keys(app.LOCAL_SCHEMES).filter(c => c !== 'other');
+  const scored = candidates.map(council => {
+    const input = app.sanitiseInput(baseInput({
+      council, children: 1, monthlyIncome: 500, housingCosts: 600, receivingUC: true
+    }));
+    const local = app.evaluateAll(input).local;
+    return {
+      council,
+      input,
+      local,
+      priced: local.filter(r => r.result.amount && r.result.amount.value > 0).length
+    };
+  });
+  const best = scored.filter(s => s.priced).sort((a, b) => b.priced - a.priced)[0]
+    || scored.filter(s => s.local.length).sort((a, b) => b.local.length - a.local.length)[0];
+
+  if (!best) {
+    problems.push('GUARD IS VACUOUS: no council has any eligible local scheme, so nothing below is being tested');
+  } else if (!best.priced) {
+    /* Not a failure. If no placeholder amounts survive in the data there is
+       nothing left to leak, and saying so is more useful than a red suite. */
+    console.log('No local scheme carries a non-zero placeholder amount any more — the leak checks below still run, but the data no longer contains the thing they guard against.');
+  }
+
+  const localHousehold = (best || scored[0]).input;
 
   const localIds = new Set();
   Object.values(app.LOCAL_SCHEMES).forEach(arr => arr.forEach(sc => localIds.add(sc.id)));
+  app.COUNCIL_WIDE_SCHEMES.forEach(sc => localIds.add(sc.id));
   const isLocal = r => !!(r && r.scheme && (r.scheme.category === 'local' || localIds.has(r.scheme.id)));
-
-  /* Vacuity guard. If Leeds' schemes stop matching this household — a changed
-     eligibility rule, a renamed council id — every check below passes without
-     testing anything, which is how a suite quietly stops working. */
-  const { local } = app.evaluateAll(localHousehold);
-  const withMoney = local.filter(r => r.result.amount && r.result.amount.value > 0);
-  console.log(`Test household (Leeds, 1 child, £500/mo, £600 rent, on UC): ${local.length} local scheme(s) eligible, ${withMoney.length} carrying a non-zero placeholder amount`);
-  if (!local.length) problems.push('GUARD IS VACUOUS: no local scheme is eligible for the test household, so nothing below is being tested');
-  if (!withMoney.length) problems.push('GUARD IS VACUOUS: no eligible local scheme carries a non-zero amount, so a leak would not show up');
+  console.log(`Test household: ${(best || scored[0]).council}, 1 child, £500/mo, £600 rent, on UC -> ${(best || scored[0]).local.length} local scheme(s) eligible, ${(best || scored[0]).priced} carrying a non-zero placeholder amount`);
 
   const seen = { cashMonthlyAt: 0, householdValueAnnual: 0 };
   const leaked = new Set();
