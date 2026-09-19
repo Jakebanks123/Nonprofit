@@ -390,6 +390,38 @@ const NATIONAL_SCHEMES = [
 
 /* ---------- LOCAL SCHEMES (pilot councils) ---------- */
 
+/* VERIFICATION STATUS. Every local entry carries `verification`, and the data
+   sanity pass in verify-keyboard.js fails the build on a missing or malformed
+   one.
+
+   It replaces `lastVerified: "example data — verify with council"`, which was
+   set on all 36 entries and read by nothing — not app.js, not explore-ui.js,
+   not any suite. The honesty marker never reached a user or a test.
+
+   The obvious replacement was a date on each entry. That would have been
+   worse than the placeholder: 34 of the 36 have never been checked against
+   anything, and a date is a claim that someone looked. So the field records
+   what was actually done, and "unchecked" is a legitimate value that stays
+   until someone checks:
+
+     { status: "unchecked" }
+       Nobody has verified this entry against the council. No date, no source
+       — writing either would invent a check that did not happen.
+
+     { status: "verified", date, source, note? }
+       Someone read `source` on `date` and the entry matches it. `note` says
+       what the source did and did not confirm.
+
+     { status: "disputed", date, source, note }
+       Someone looked and the claim was NOT supported. The entry is still
+       shown; `note` says what was checked and what was missing. Acting on a
+       disputed entry is a separate decision (PRIORITIES.md, local council
+       schemes), not something this field makes for you.
+
+   `date` is ISO YYYY-MM-DD and may not be in the future; `source` must be the
+   https page that was actually read. Nothing in the UI reads this yet — it is
+   a data-quality tripwire first, the same shape as RATES_TAX_YEAR. */
+
 /* Two scheme types exist in almost every English council in some form
    (Household Support Fund top-ups and Discretionary Housing Payments),
    so these factories keep new councils to a few lines each rather than
@@ -400,7 +432,7 @@ function makeHouseholdSupportFund(councilId, label, url, incomeThreshold, amount
     name: label + " Household Support Fund grant",
     url,
     category: "local",
-    lastVerified: "example data — verify with council",
+    verification: { status: "unchecked" },
     evaluate(input) {
       if (!(input.monthlyIncome < incomeThreshold || input.hasDisabilityOrHealthCondition || input.children > 0)) {
         return { eligible: false };
@@ -421,7 +453,7 @@ function makeDiscretionaryHousingPayment(councilId, label, url) {
     name: label + " Discretionary Housing Payment",
     url,
     category: "local",
-    lastVerified: "example data — verify with council",
+    verification: { status: "unchecked" },
     evaluate(input) {
       if (!(input.housingCosts > 0)) return { eligible: false };
       if (!(input.receivingUC || input.monthlyIncome < 1500)) return { eligible: false };
@@ -442,7 +474,12 @@ const LOCAL_SCHEMES = {
       name: "Leeds Council Tax Hardship Fund",
       url: "https://www.leeds.gov.uk/council-tax",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: {
+        status: "disputed",
+        date: "2026-08-21",
+        source: "https://www.leeds.gov.uk/council-tax",
+        note: "Leeds' own Council Tax Support page does not mention this fund, which is where it would most obviously sit. Every billing authority holds the s13A(1)(c) discretionary reduction power, so something may exist under another name — but the app's specific claim is unsupported by the page that would most obviously carry it."
+      },
       evaluate(input) {
         if (input.monthlyIncome >= 1700) return { eligible: false };
         return {
@@ -458,7 +495,7 @@ const LOCAL_SCHEMES = {
       name: "Leeds Discretionary Housing Payment",
       url: "https://www.leeds.gov.uk/benefits/discretionary-housing-payments",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.housingCosts > 0)) return { eligible: false };
         if (!(input.receivingUC || input.monthlyIncome < 1500)) return { eligible: false };
@@ -475,7 +512,12 @@ const LOCAL_SCHEMES = {
       name: "Leeds Healthy Holidays (school holiday support)",
       url: "https://www.leeds.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: {
+        status: "verified",
+        date: "2026-09-19",
+        source: "https://moneyinformationcentre.leeds.gov.uk/healthy-holidays",
+        note: "Leeds City Council's own page describes free activities with a hot meal for children eligible for income-related free school meals, at Easter, summer and Christmas, funded through the DfE Holiday Activities and Food programme. The page does not name a funding year, so the scheme running in 2026 is inferred from the page being current rather than stated on it."
+      },
       evaluate(input) {
         if (input.children <= 0) return { eligible: false };
         if (!(input.receivingUC || input.monthlyIncome < 1600)) return { eligible: false };
@@ -494,7 +536,7 @@ const LOCAL_SCHEMES = {
       name: "Birmingham Household Support Fund grant",
       url: "https://www.birmingham.gov.uk/homepage/28/household_support_fund",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1800 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
@@ -510,7 +552,7 @@ const LOCAL_SCHEMES = {
       name: "Birmingham Energy Savers",
       url: "https://www.birmingham.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 2000)) return { eligible: false };
         return {
@@ -526,7 +568,7 @@ const LOCAL_SCHEMES = {
       name: "Birmingham free leisure access (under 18 / 60+)",
       url: "https://www.birmingham.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.children > 0 || input.age >= 60)) return { eligible: false };
         return {
@@ -546,7 +588,7 @@ const LOCAL_SCHEMES = {
       name: "Manchester Local Assistance Scheme",
       url: "https://www.manchester.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
         return {
@@ -566,7 +608,7 @@ const LOCAL_SCHEMES = {
       name: "Liverpool Citizens Support Scheme",
       url: "https://liverpool.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
@@ -586,7 +628,7 @@ const LOCAL_SCHEMES = {
       name: "Sheffield Local Assistance Scheme",
       url: "https://www.sheffield.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
         return {
@@ -606,7 +648,7 @@ const LOCAL_SCHEMES = {
       name: "Bristol Council Tax Hardship Fund",
       url: "https://www.bristol.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (input.monthlyIncome >= 1700) return { eligible: false };
         return {
@@ -626,7 +668,7 @@ const LOCAL_SCHEMES = {
       name: "Newcastle Compassionate Fund",
       url: "https://www.newcastle.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
@@ -646,7 +688,7 @@ const LOCAL_SCHEMES = {
       name: "Nottingham Local Welfare Assistance",
       url: "https://www.nottinghamcity.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
         return {
@@ -666,7 +708,7 @@ const LOCAL_SCHEMES = {
       name: "Westminster Emergency Support Scheme",
       url: "https://www.westminster.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
@@ -686,7 +728,7 @@ const LOCAL_SCHEMES = {
       name: "Hackney Local Welfare Assistance",
       url: "https://hackney.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
         return {
@@ -706,7 +748,7 @@ const LOCAL_SCHEMES = {
       name: "Camden Resident Support Scheme",
       url: "https://www.camden.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
@@ -726,7 +768,7 @@ const LOCAL_SCHEMES = {
       name: "Tower Hamlets Resident Support Scheme",
       url: "https://www.towerhamlets.gov.uk/",
       category: "local",
-      lastVerified: "example data — verify with council",
+      verification: { status: "unchecked" },
       evaluate(input) {
         if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
