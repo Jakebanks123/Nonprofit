@@ -6,6 +6,14 @@ const problems = [];
 
 async function fillFlow(page, o) {
   await page.goto(fileUrl);
+  return fillSteps(page, o);
+}
+
+/* Split out of fillFlow so a check can inject something into the page after
+   the app's scripts have run but before the results render. page.goto() wipes
+   an injection, and addInitScript() runs too early to wrap a function the app
+   has not defined yet. */
+async function fillSteps(page, o) {
   await page.fill('#councilSearch', o.council || 'Leeds');
   await page.dispatchEvent('#councilSearch', 'input');
   await page.click('#nextBtn');
@@ -243,6 +251,68 @@ async function fillFlow(page, o) {
   console.log(`${links.length} scheme links on results page; malformed: ${badLinks.length}`);
   links.forEach(l => console.log('   ' + l.href));
   if (badLinks.length) problems.push('Malformed links: ' + JSON.stringify(badLinks));
+
+  console.log('\n===== F. LOCAL SCHEME AMOUNTS MUST NOT REACH THE HEADLINE TOTAL =====\n');
+
+  /* The amounts on local schemes are placeholders. renderLocalSection() passes
+     showAmount: false and renderResultsStep() totals nationalResults only, so
+     they are inert — but nothing enforced either, and one careless change puts
+     £100 of placeholder into the largest type on the page.
+
+     The node half of this guard is in verify-edgecases.cjs, which watches the
+     what-if engine's totals. sumEstimates() is only ever called from
+     renderResultsStep(), which needs a DOM, so it has to be watched here. */
+  await page.goto(fileUrl);
+  await page.evaluate(() => {
+    const real = window.sumEstimates;
+    /* LOCAL_SCHEMES is a top-level `const` in a classic script, so it is a
+       global lexical binding and NOT a property of window — reference it bare
+       or it comes back undefined and every id check silently passes. */
+    const localIds = new Set();
+    Object.values(LOCAL_SCHEMES).forEach(arr => arr.forEach(sc => localIds.add(sc.id)));
+    window.__localLeak = { calls: 0, leaked: [] };
+    window.sumEstimates = function (results) {
+      window.__localLeak.calls++;
+      (results || []).forEach(r => {
+        if (r && r.scheme && (r.scheme.category === 'local' || localIds.has(r.scheme.id))) {
+          window.__localLeak.leaked.push(r.scheme.id);
+        }
+      });
+      return real.apply(this, arguments);
+    };
+  });
+
+  // Leeds, one child, £500/mo, £600 rent: all three Leeds local schemes match,
+  // two of them carrying a non-zero placeholder amount.
+  await fillSteps(page, { council: 'Leeds', children: 1, income: 500, housing: 600 });
+
+  const leak = await page.evaluate(() => window.__localLeak);
+  console.log(`sumEstimates() called ${leak.calls}x; local schemes passed to it: ${leak.leaked.length}`);
+  if (!leak.calls) problems.push('GUARD IS VACUOUS: sumEstimates() was never called, so no leak could have been detected');
+  if (leak.leaked.length) problems.push('LOCAL SCHEME REACHED sumEstimates(): ' + [...new Set(leak.leaked)].join(', '));
+
+  /* And the same property at the other end: no local card may print a figure.
+     The amount is the <p> immediately after the card's h3.scheme-name. */
+  const localCards = await page.evaluate(() => {
+    const h2 = [...document.querySelectorAll('h2')].find(h => /^From your council/.test(h.textContent.trim()));
+    if (!h2) return { found: false };
+    let el = h2.nextElementSibling;
+    while (el && el.tagName !== 'UL') el = el.nextElementSibling;
+    if (!el) return { found: true, cards: 0, withAmount: [] };
+    const lis = [...el.querySelectorAll(':scope > li')];
+    return {
+      found: true,
+      cards: lis.length,
+      withAmount: lis.filter(li => li.querySelector('h3.scheme-name + p'))
+        .map(li => li.querySelector('h3.scheme-name').textContent.trim())
+    };
+  });
+  console.log(`local scheme cards rendered: ${localCards.found ? localCards.cards : '(section not found)'}; showing an amount: ${localCards.found ? localCards.withAmount.length : 'n/a'}`);
+  if (!localCards.found) problems.push('GUARD IS VACUOUS: no "From your council" section on the results page for this household');
+  else if (!localCards.cards) problems.push('GUARD IS VACUOUS: no local scheme cards rendered, so a printed amount would not show up');
+  if (localCards.found && localCards.withAmount.length) {
+    problems.push('Local scheme card is printing a placeholder amount: ' + localCards.withAmount.join(', '));
+  }
 
   await browser.close();
 
