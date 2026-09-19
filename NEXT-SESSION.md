@@ -1,7 +1,11 @@
 # Notes for whoever picks this up next
 
-Last updated 2026-08-20 (evening). Written for a future Claude session, but
-useful to a human too.
+Last updated 2026-09-19. Written for a future Claude session, but useful to a
+human too.
+
+Sections dated August describe what was true then and are deliberately left as
+written — they are accurate statements about the past. Anything that tells you
+what the code does now, or what to do next, is kept current.
 
 ## What this project is
 
@@ -35,6 +39,32 @@ Independently re-checked against GOV.UK: UC standard allowances
 £338.58 / £424.90 / £528.34 / £666.97, child element £303.94, +£47.94 for a
 first child born before 6 April 2017, work allowances £427 / £710. These match
 the app exactly.
+
+## Verified as of 19 September 2026
+
+Read directly from GOV.UK, not from a summary: the Crisis and Resilience Fund
+guidance and the 2026-27 grant determination. Confirmed the fund's dates
+(1 April 2026 – 31 March 2029) and England total (£858,004,578); that Housing
+Payment eligibility is nationally set ("entitled to either: HB (Housing
+Benefit) [or] UC (Universal Credit) with housing costs towards rental
+liability"); that Crisis Payment eligibility is left to each authority; and
+that "DHPs will come to an end in England on 31 March 2026".
+
+Three things the earlier research got wrong, all corrected in the code and in
+the project's council-schemes plan:
+
+- CRF is **not** simply "administered by upper-tier authorities". The grant
+  determination gives upper tier authorities crisis and resilience money and
+  lower tier authorities housing payments, so **Housing Payments are run by the
+  billing authority** — the one a postcode already resolves to here. Only
+  Crisis Payments are upper-tier.
+- CRF has **four** strands, not two. Crisis Payments, Housing Payments,
+  Resilience Services and Community Coordination. Only the first two are things
+  an individual can apply for, so only those two are scheme cards.
+- The guidance does **not** say the Household Support Fund ended. The final HSF
+  period ran to 31 March 2026 with no successor announced and CRF took its
+  place — a well-supported inference, not a quotable fact, and recorded in
+  `data/schemes.js` as an inference for exactly that reason.
 
 ## Council Tax Reduction — fixed 20 Aug, read this if you touch it again
 
@@ -95,23 +125,35 @@ So it cannot ship as a cheerful "you could get £4,495/yr" card.
 ## Environment and workflow constraints
 
 - Claude's cloud container's internet access is **inconsistent across
-  sessions** — some sessions report none at all (no GitHub, no npm registry,
-  no postcodes.io), but the 20 Aug evening session was able to `git clone`
-  this repo directly and use web search/fetch tools to check gov.uk and
-  council sources. Don't assume either way; test with a shallow clone or a
-  search before relying on it, and fall back to the device-bridge folder or
-  chat attachments if it fails.
+  sessions**. As of 19 Sep: `git clone` works, web search and fetch work, npm
+  install works, but **`git push` returns 403** ("not in this session's
+  authorized repository set"), so a session cannot push for you. Don't assume
+  either way; test before relying on it, and fall back to the device-bridge
+  folder or chat attachments.
 - **`.js` downloads are blocked by his browser.** Send code as `.txt` and have
   him rename. Tell him to turn on File name extensions in Explorer first.
 - Jake uses **GitHub Desktop**, not the command line, and **Git is not installed
   on his machines**. Do not hand him `git` commands. Fetch/Pull is the button at
   the top right of the GitHub Desktop toolbar.
-- **Node.js is not installed either**, so he cannot run the tests or
-  `npm run build` locally. Staging the repo into the container and running the
-  suite there works well and has caught real bugs twice.
-- Two clones: desktop at `C:\Users\janab\OneDrive\Documents\GitHub` (the repo
-  root **is** that folder), laptop at `C:\Claude\Nonprofit`. The device bridge is
-  bound to whichever machine the session started on.
+- **Node.js is not installed on the Windows machines**, so the tests and
+  `npm run build` cannot be run there.
+- **Where the suites actually get run, as of 19 Sep.** The Mac clone runs the
+  two Node-side suites (`verify-maths.cjs`, `verify-edgecases.cjs`) after
+  `npm install`. The four browser suites cannot run there: Playwright's
+  Chromium download is blocked by the egress allowlist. They run in the cloud
+  container instead, where Chromium is pre-installed at `/opt/pw-browsers` —
+  but the pre-installed build may not match the version the pinned Playwright
+  expects, in which case point `executablePath` at it **for that run only**.
+  Do not commit a hard-coded `executablePath`; that was fixed in August and is
+  exactly the bug it fixed.
+- Three clones: desktop at `C:\Users\janab\OneDrive\Documents\GitHub` (the repo
+  root **is** that folder), laptop at `C:\Claude\Nonprofit`, and a Mac at
+  `~/Documents/GitHub/Nonprofit`. The device bridge is bound to whichever
+  machine the session started on, and needs a folder connected in the desktop
+  app before it can reach anything.
+- Git operations through the device bridge can leave a stale `.git/index.lock`,
+  because deleting files in a connected folder is off by default. Until it is
+  removed, every commit and branch switch fails — including in GitHub Desktop.
 - `dist/style.css` is a **compiled** Tailwind build. A class not present when it
   was last built silently does not exist at runtime — the element renders
   unstyled with no error. New classes need `npm run build`, and `dist/style.css`
@@ -132,3 +174,9 @@ uprating) and **16 March** (apply it before 6 April). Both notify by push.
 - `FINDINGS.md` — the original audit that found the four calculation errors.
 - `CLAUDE.md` — working conventions. Note its stack section describes an
   intended Next.js migration that has not happened.
+- The claude.ai project attached to this work carries three documents that are
+  not in the repo and are more detailed than anything here on the council
+  schemes: `local-council-schemes-plan.md` (what the CRF actually is and what
+  it made wrong), `local-council-fix-queue.md` (the eight-item queue, six of
+  them now done) and `benefits-shortlist.md`. If you are picking up the council
+  work, read the fix queue first.

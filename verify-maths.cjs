@@ -20,7 +20,9 @@ vm.createContext(ctx);
 const combined = ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
   .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8'))
   .join('\n;\n')
-  + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS,
+  + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCIL_WIDE_SCHEMES, COUNCILS,
+      CRF_DISTRICT_HOUSING_EXIT, crfDistrictHousingExitPassed, isEnglishCouncil,
+      WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT,
       ALL_ENGLAND_COUNCILS, ENGLAND_POSTCODE_DATA, matchOfflineCouncil,
       resolveCouncilByName, sanitiseInput, gbp, evaluateAll, sweep, bisect, findCliffs, findNearMiss, SWEEP_AXES, RATES_TAX_YEAR, ukTaxYearOf, ratesStaleness });`;
 vm.runInContext(combined, ctx, { filename: 'app-combined.js' });
@@ -202,13 +204,31 @@ function ctsAmount(input) {
     (r.eligible && !r.amount) ? 1 : 0, 1, 0, 'no accurate national formula exists for working-age schemes');
 }
 {
-  // Same for someone clearly well off — still no false "ineligible" claim,
-  // since we have no council-specific bands to test against, but the reason
-  // text is conditioned on "if you're on a low income" so it doesn't
-  // overclaim for them either.
-  const r = ctsResult(baseInput({ age: 35, adults: 1, monthlyIncome: 20000, savings: 500000 }));
-  check('CTS: working-age, high income and savings — still signposted, not a fabricated figure',
-    (r.eligible && !r.amount) ? 1 : 0, 1, 0, 'no income/capital test is applied to the working-age signpost');
+  /* This case used to assert the opposite — that someone clearly well off was
+     STILL signposted — on the reasoning that we have no council-specific
+     bands to test against, so calling them ineligible would be its own false
+     claim, and that the reason text is conditioned on "if you're on a low
+     income" anyway.
+
+     Overturned deliberately (fix queue item 5). The sentence a well-off
+     household actually read was "You're very likely able to get some
+     reduction on your council tax if you're on a low income". "Very likely"
+     is a claim about the reader; the trailing condition does not retract it.
+
+     Note what changed and what did not. CAPITAL is now tested, because
+     capital limits are near-universal across council schemes and cluster on
+     one number — £16,000, which is what Leeds applies. INCOME is still not
+     tested, because income thresholds are the part that genuinely differs
+     council to council, so any line drawn there would be invented. Hence the
+     pair below: high income alone is still signposted, high capital is not. */
+  const rich = ctsResult(baseInput({ age: 35, adults: 1, monthlyIncome: 20000, savings: 500000 }));
+  check('CTS: working-age with £500,000 saved — no longer signposted',
+    rich.eligible ? 1 : 0, 0, 0, 'above every council capital limit, so "very likely" was an overclaim');
+
+  const highIncomeOnly = ctsResult(baseInput({ age: 35, adults: 1, monthlyIncome: 20000, savings: 0 }));
+  check('CTS: working-age on a high income but no savings — still signposted, still no figure',
+    (highIncomeOnly.eligible && !highIncomeOnly.amount) ? 1 : 0, 1, 0,
+    'income thresholds are set per council, so drawing one here would invent the number this file exists to prevent');
 }
 
 /* CASE 9b — the £16,000 capital limit applies to pension-age claimants too.
@@ -680,6 +700,79 @@ function cliffsOn(input, variable) {
   check('CLIFF: pension-age CTR savings cliff position', capital.length ? capital[0].at : null, 16000, 0,
     'last qualifying pound of capital');
 }
+
+console.log('\n=========== CRISIS AND RESILIENCE FUND ===========\n');
+
+/* Tripwire, the same shape as RATES_TAX_YEAR. District councils receive a
+   Housing Payment allocation in years 1 and 2 only; from the financial year
+   ending March 2029, which begins 1 April 2028, all CRF funding goes to
+   unitary and county authorities. On that date the Housing Payment entry
+   starts pointing at the wrong council in every two-tier area — it names the
+   billing authority, and the answer becomes the upper-tier one. That is a
+   rewrite of the entry, not a date bump, so it fails here rather than
+   misdirecting people quietly. */
+check('CRF: the district Housing Payment allocation has not ended yet',
+  app.crfDistrictHousingExitPassed() ? 1 : 0, 0, 0,
+  'from ' + app.CRF_DISTRICT_HOUSING_EXIT + ' Housing Payments move to the upper-tier authority; data/schemes.js needs rewriting, not just a new date');
+
+const crfIds = app.COUNCIL_WIDE_SCHEMES.map(s => s.id);
+function crfShownFor(over) {
+  const local = app.evaluateAll(app.sanitiseInput(baseInput(over))).local;
+  return local.filter(r => crfIds.includes(r.scheme.id)).length;
+}
+
+/* CRF is England-only, and the live postcode lookup covers the whole UK, so a
+   Welsh or Scottish postcode arrives here as council "other" with a real
+   district name attached. Without the England check that reads as "we don't
+   have your council's own schemes" and shows a fund that does not exist
+   where they live. */
+check('CRF: shown for an English council outside the pilot 12',
+  crfShownFor({ council: 'other', detectedDistrict: 'Cheltenham', receivingUC: true, housingCosts: 600 }), 2, 0,
+  'every English authority receives a CRF allocation, so this does not depend on hand research');
+check('CRF: not shown for a council outside England',
+  crfShownFor({ council: 'other', detectedDistrict: 'Cardiff', receivingUC: true, housingCosts: 600 }), 0, 0,
+  'the live lookup covers the whole UK; CRF does not');
+check('CRF: not shown when the council is not known at all',
+  crfShownFor({ council: 'other', detectedDistrict: '', receivingUC: true, housingCosts: 600 }), 0, 0,
+  'no council means no basis for saying a fund covers them');
+
+/* The national Housing Payment rule: entitled to Housing Benefit, or to UC
+   with housing costs towards rental liability. The app cannot see Housing
+   Benefit or tell rent from mortgage, so this tests the gate it can express. */
+const housingPayment = app.COUNCIL_WIDE_SCHEMES.find(s => s.id === 'crf-housing-payment');
+const hpEligible = over => housingPayment.evaluate(app.sanitiseInput(baseInput(over))).eligible ? 1 : 0;
+check('CRF Housing Payment: UC plus housing costs qualifies',
+  hpEligible({ receivingUC: true, housingCosts: 600 }), 1, 0);
+check('CRF Housing Payment: housing costs without UC does not',
+  hpEligible({ receivingUC: false, housingCosts: 600 }), 0, 0,
+  'the replaced rule let this through on monthlyIncome < 1500, which was invented');
+check('CRF Housing Payment: UC without housing costs does not',
+  hpEligible({ receivingUC: true, housingCosts: 0 }), 0, 0);
+check('CRF Housing Payment: shows no amount',
+  housingPayment.evaluate(app.sanitiseInput(baseInput({ receivingUC: true, housingCosts: 600 }))).amount ? 1 : 0, 0, 0,
+  'discretionary award, so any figure would be invented');
+
+console.log('\n=========== WORKING-AGE COUNCIL TAX SUPPORT SIGNPOST ===========\n');
+
+/* This branch used to return eligible: true unconditionally — no income test,
+   no savings test — so a working-age household on £8,000 a month with
+   £200,000 in the bank was told it was "very likely" to get a reduction. The
+   pension-age branch had the £16,000 capital limit all along; this one
+   returned before reaching it. */
+const cts = scheme('council-tax-support');
+const ctsWorkingAge = over => cts.evaluate(app.sanitiseInput(baseInput(Object.assign({ age: 35 }, over))));
+
+check('CTS working-age: still signposted at exactly £16,000 of savings',
+  ctsWorkingAge({ savings: 16000, monthlyIncome: 500 }).eligible ? 1 : 0, 1, 0,
+  'last qualifying pound under the commonest working-age capital limit');
+check('CTS working-age: hidden at £16,001',
+  ctsWorkingAge({ savings: 16001, monthlyIncome: 500 }).eligible ? 1 : 0, 0, 0);
+check('CTS working-age: hidden for £8,000/mo with £200,000 saved',
+  ctsWorkingAge({ savings: 200000, monthlyIncome: 8000 }).eligible ? 1 : 0, 0, 0,
+  'the exact household the unconditional branch called "very likely" to qualify');
+check('CTS working-age: still shows no figure below the limit',
+  ctsWorkingAge({ savings: 3000, monthlyIncome: 500 }).amount ? 1 : 0, 0, 0,
+  'no accurate per-council figure exists; hiding the signpost must not become calculating one');
 
 console.log('\n=========== SUMMARY ===========\n');
 if (!findings.length) {

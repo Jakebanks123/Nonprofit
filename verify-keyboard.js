@@ -11,7 +11,7 @@ vm.createContext(ctx);
 vm.runInContext(
   ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
     .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n;\n')
-  + '\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS });',
+  + '\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCIL_WIDE_SCHEMES, COUNCILS });',
   ctx, { filename: 'app-combined.js' });
 const app = ctx;
 
@@ -20,7 +20,7 @@ const problems = [];
 
 (async () => {
   console.log('===== SCHEME DATA SANITY =====\n');
-  const allSchemes = [...app.NATIONAL_SCHEMES];
+  const allSchemes = [...app.NATIONAL_SCHEMES, ...app.COUNCIL_WIDE_SCHEMES];
   Object.entries(app.LOCAL_SCHEMES).forEach(([k, arr]) => arr.forEach(s => allSchemes.push(s)));
   const ids = new Set();
   for (const s of allSchemes) {
@@ -40,6 +40,77 @@ const problems = [];
   Object.keys(app.LOCAL_SCHEMES).forEach(k => {
     if (!pilotIds.has(k)) problems.push('LOCAL_SCHEMES key is not a known council id: ' + k);
   });
+
+  /* VERIFICATION STATUS. `lastVerified` used to carry the string "example data
+     — verify with council" on all 36 local entries and was read by nothing —
+     not app.js, not explore-ui.js, not any suite — so the honesty marker never
+     reached a user or a test. These checks are what make it load-bearing. The
+     shape of the field is documented in data/schemes.js. */
+  const VERIFICATION_STATUSES = ['unchecked', 'verified', 'disputed'];
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  const today = new Date().toISOString().slice(0, 10);
+  const statusCounts = { unchecked: 0, verified: 0, disputed: 0 };
+
+  /* The council-wide CRF entries are council-section schemes too, so they are
+     held to the same verification standard as the per-council ones. */
+  const verifiable = Object.entries(app.LOCAL_SCHEMES)
+    .concat([['all-england', app.COUNCIL_WIDE_SCHEMES]]);
+  verifiable.forEach(([councilId, arr]) => arr.forEach(s => {
+    const where = councilId + '/' + s.id;
+    const v = s.verification;
+    if (!v || typeof v !== 'object') {
+      problems.push(where + ': no verification field');
+      return;
+    }
+    if (!VERIFICATION_STATUSES.includes(v.status)) {
+      problems.push(where + ': verification.status is ' + JSON.stringify(v.status)
+        + ', expected one of ' + VERIFICATION_STATUSES.join(', '));
+      return;
+    }
+    statusCounts[v.status]++;
+    if (v.status === 'unchecked') {
+      /* A date or a source on an unchecked entry is the exact failure this
+         field exists to prevent: it reads as a check that never happened. */
+      if (v.date || v.source) {
+        problems.push(where + ': an unchecked entry must carry no date and no source');
+      }
+      return;
+    }
+    if (!ISO_DATE.test(v.date || '') || Number.isNaN(Date.parse(v.date))) {
+      problems.push(where + ': verification.date is ' + JSON.stringify(v.date) + ', expected ISO YYYY-MM-DD');
+    } else if (v.date > today) {
+      problems.push(where + ': verification.date ' + v.date + ' is in the future');
+    }
+    if (!/^https:\/\//.test(v.source || '')) {
+      problems.push(where + ': verification.source is ' + JSON.stringify(v.source)
+        + ' — a ' + v.status + ' entry must name the https page that was read');
+    }
+    if (v.status === 'disputed' && !v.note) {
+      problems.push(where + ': a disputed entry must say in verification.note what was checked and what was missing');
+    }
+  }));
+
+  /* Catches the old field coming back on any scheme — including a national
+     one, or an entry pasted in from git history. Checked on the objects and
+     not on the file text, so that data/schemes.js can still quote the old
+     string in a comment to explain what this replaced. Scanning the source
+     failed on that comment, which is the check marking its own documentation
+     as the bug. */
+  const PLACEHOLDER = 'example data — verify with council';
+  allSchemes.forEach(sc => {
+    const who = sc.id || sc.name;
+    if ('lastVerified' in sc) {
+      problems.push(who + ': still carries the old lastVerified field — use verification instead');
+    }
+    Object.keys(sc).forEach(k => {
+      if (typeof sc[k] === 'string' && sc[k].includes(PLACEHOLDER)) {
+        problems.push(who + '.' + k + ' is still the "' + PLACEHOLDER + '" placeholder');
+      }
+    });
+  });
+
+  console.log('local scheme verification: '
+    + VERIFICATION_STATUSES.map(k => statusCounts[k] + ' ' + k).join(', '));
 
   console.log('\n===== KEYBOARD-ONLY NAVIGATION =====\n');
   const browser = await chromium.launch();

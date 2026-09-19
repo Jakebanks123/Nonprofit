@@ -1,25 +1,154 @@
 # What to work on next, in order
 
-Last updated 2026-08-20 (evening). Ordered by how much harm the problem does
-to a real user, not by effort.
+Last updated 2026-09-19. Ordered by how much harm the problem does to a real
+user, not by effort.
 
 Context that sets the ordering: **the app is not deployed.** It runs from a
 local file and this repo, so nobody is currently being given wrong numbers.
 That makes everything below cheap to fix now and expensive to fix later.
 
+Items are renumbered in this revision. The old numbering had gaps where
+completed items were removed, so a reference to "item 3" in an older commit
+message or document may not be item 3 here.
+
+---
+
+## How coverage works
+
+The local layer is the point of this app. National benefits are already well
+served by Turn2us, entitledto and Citizens Advice; what they do not do is tell
+someone what their own council runs. "Cover fewer councils" is therefore not a
+cautious version of this product — it is a different and worse one.
+
+But "add a council" means three different things with completely different
+economics, and keeping them apart is what stops the coverage question going
+round in circles.
+
+**1. Routing — which council a postcode belongs to.** Done for England: all 296
+billing authorities resolve from a postcode, via the live postcodes.io lookup
+and the bundled ONS data behind it. Not done at all for Scotland, Wales or
+Northern Ireland, which are absent from the council list entirely — a Cardiff
+postcode currently gets UK-wide benefits and nothing else.
+
+**2. Schemes with national rules that councils deliver.** The Crisis and
+Resilience Fund, Council Tax Support, the single person discount, Blue Badge,
+free school meals, and the s13A(1)(c) discretionary reduction power every
+billing authority holds. The rules come from one place, so one piece of
+research covers every council at near-zero marginal cost. CRF went England-wide
+in a single step on 19 September for exactly this reason.
+
+**3. Bespoke council inventions.** Leeds Healthy Holidays, Birmingham Energy
+Savers, Newcastle Compassionate Fund. No list, no dataset, no common shape.
+One council at a time, forever.
+
+### What follows from that
+
+**Breadth is already solved for England.** Every English postcode resolves to a
+council, and since 19 September every one of them returns real content. There
+is no English postcode that gets nothing — so there is no countrywide gap left
+to close, and "countrywide coverage" should not be written down as a goal. It
+implies a finish line that does not exist and a gap that is already shut.
+
+**Depth is per-scheme, and open-ended.** Each category 2 scheme lands for all
+296 councils at once. It deepens what every council's page says rather than
+extending the map. There is no finish line here either, just schemes we have
+and schemes we do not.
+
+**So the completion criterion is per-scheme, never per-council**: *this scheme
+is live for every council it applies to.* CRF meets it. Council Tax Support
+meets it as a signpost, and will not meet it as a figure until item 6 is
+solved.
+
+**Category 3 stays partial on purpose.** Twelve councils covered properly, with
+the UI saying so, beats 296 covered badly. The argument is value before
+maintenance: a holiday activities scheme matters less to a household than
+getting their Council Tax Support right, and it costs more per entry to find
+and keep current.
+
+**The one genuine sequence is the rest of the UK.** Routing has to exist before
+anything can be shown there, so it is category 1 then category 2, in that
+order. It is probably not much work: the devolved schemes are mostly national
+rather than per-council — the Scottish Welfare Fund, the Welsh Discretionary
+Assistance Fund, and Council Tax Reduction, which unlike England is a national
+scheme in both Scotland and Wales. Roughly a dozen entries for three nations,
+if that holds up. **It has not been verified yet, and must be before it is
+planned** — a plausible-sounding summary of another nation's benefit system is
+the same failure mode as the invented council tax formula.
+
 ---
 
 ## Recently completed
 
-- **All five test suites now run from `npm test`** (~5s). Playwright is a dev
-  dependency, and `verify-ui.js`, `verify-keyboard.js` and `test.js` are folded
-  in. Three things had to be fixed to make that mean anything:
-  - All three browser suites hard-coded `executablePath: '/opt/pw-browsers/chromium'`,
+### September 2026
+
+- **The Crisis and Resilience Fund replaced the dead HSF and DHP entries.**
+  22 of the 36 local entries named a scheme that stopped existing on 1 April
+  2026. Both factory functions and the two hand-written copies of their output
+  (`leeds-dhp`, `birmingham-household-support`) are gone, replaced by two
+  entries in a new `COUNCIL_WIDE_SCHEMES` list that apply to **every English
+  council**, not just the pilot 12 — an unlisted English district now gets real
+  cards instead of an apology. Both carry no amount.
+
+  The tier split is not what was expected. The grant determination gives upper
+  tier authorities crisis and resilience money and lower tier authorities
+  housing payments, so Housing Payments are run by the billing authority a
+  postcode already resolves to here — no new council field was needed. Only
+  Crisis Payments are upper-tier, and that entry names no council.
+
+  Housing Payment eligibility is national (Housing Benefit, or UC with housing
+  costs towards rental liability), replacing `receivingUC || monthlyIncome <
+  1500` where the income half was invented. Crisis Payments carry no criteria
+  at all, deliberately — every criterion is set locally, so any threshold would
+  repeat the £1,800 the old factory made up.
+
+- **Working-age Council Tax Support no longer tells well-off households they
+  qualify.** That branch returned `eligible: true` with no income or savings
+  test, so £8,000/month with £200,000 saved was told it was "very likely" to
+  get a reduction — the pension-age branch had the £16,000 capital limit all
+  along, and this one returned before reaching it. Now hidden above £16,000,
+  calculating nothing. Income is deliberately still not tested: capital limits
+  are near-universal and cluster on one number, while income thresholds are the
+  part that genuinely differs council to council.
+
+- **`lastVerified` records what was actually checked.** It carried the string
+  "example data — verify with council" on all 36 local entries and was read by
+  nothing — not `app.js`, not any suite. Replaced by `verification`, with
+  statuses `unchecked` / `verified` / `disputed`; the latter two require an ISO
+  date and the https page actually read, and `unchecked` forbids both, so an
+  entry cannot claim a check that never happened. Enforced in the data sanity
+  pass of `verify-keyboard.js`. Standing at 12 unchecked, 3 verified,
+  1 disputed.
+
+- **Placeholder local amounts can no longer reach a total.** They were inert by
+  convention only. `verify-edgecases.cjs` now wraps `cashMonthlyAt()` and
+  `householdValueAnnual()` during a real near-miss and cliff run and asserts
+  what they were handed; `verify-ui.js` wraps `sumEstimates()` in the page and
+  asserts no local card renders an amount. Both carry vacuity guards that fail
+  if the test household stops matching.
+
+- **An England gate and a 2028 tripwire.** The live postcode lookup covers the
+  whole UK, so a Cardiff postcode would otherwise have been shown an
+  England-only fund. `CRF_DISTRICT_HOUSING_EXIT` fails the suite from 1 April
+  2028, when districts stop receiving an allocation and Housing Payments move
+  to the upper-tier authority — a change of answer, not of funding line, so it
+  needs the entry rewritten rather than the date bumped.
+
+### August 2026
+
+- **A "what if" panel on the results screen** (`explore-core.js`,
+  `explore-ui.js`, PR #4). A slider moves monthly income or savings while the
+  answers stay put, and every point where a scheme stops is named in plain
+  text. A cliff is a change in *which* schemes qualify, not a big drop in
+  amount, and the panel deliberately refuses to price spend-your-savings-down
+  scenarios (deprivation of capital, reg 50 UC Regs 2013). New sixth suite
+  `verify-explore.js`, 131 checks.
+- **All six suites run from `npm test`** (~5s). Three things had to be fixed to
+  make that mean anything:
+  - The browser suites hard-coded `executablePath: '/opt/pw-browsers/chromium'`,
     a path from the container they were written in. They now let Playwright
     resolve its own browser, which honours `PLAYWRIGHT_BROWSERS_PATH`.
-  - None of them set a non-zero exit code, so they could not fail — the same
-    flaw the maths suites had until 19 Aug. `verify-keyboard.js` was reporting
-    a problem and exiting 0.
+  - None set a non-zero exit code, so they could not fail — the same flaw the
+    maths suites had until 19 Aug.
   - `verify-keyboard.js` reported a phantom focus-ring problem on every run: it
     compared `outlineStyle + ' ' + outlineWidth` against `'none 0px'` and got
     `'none 3px'`, because `:focus-visible` leaves the width set while the style
@@ -31,24 +160,22 @@ That makes everything below cheap to fix now and expensive to fix later.
   in two, because the honest answer is different for each half of its users:
   - **Working-age** (most users): no accurate UK-wide formula exists — each of
     England's ~296 billing authorities designs its own scheme, and there's no
-    current, complete dataset of all of them to calculate from (checked, see
-    "More per-council data" below). Now signposted only — a real scheme
-    almost certainly exists, but no pound figure is shown. This replaces the
-    `thresholdPerAdult = 1450` / `children * 350` formula entirely.
+    current, complete dataset of all of them to calculate from. Signposted
+    only. This replaced the `thresholdPerAdult = 1450` / `children * 350`
+    formula entirely.
   - **Pension-age**: this genuinely IS a national scheme (the Council Tax
     Reduction Schemes (Prescribed Requirements) (England) Regulations 2012,
-    as amended for 2026/27), so a real calculation is now done: Pension
-    Credit guarantee level as the applicable amount, 20% taper on income
-    above it, the same £10,000-£16,000 deemed-income rule on savings as
-    Pension Credit itself, and Guarantee Credit recipients passported to a
-    reduction to nil. A new optional question asks for the person's actual
-    council tax bill (falls back to the England average Band D bill,
-    £2,392/yr, with confidence downgraded when it's used). Severe disability
-    /carer/child premiums and non-dependant deductions are **not** modelled
-    yet — flagged in the result, not guessed at. Verified against Oxford City
-    Council's and Durham County Council's published pensioner scheme
-    documents and the DWP/Age UK 2026/27 rates; ten new hand-computed cases
-    added to `verify-maths.cjs`.
+    as amended for 2026/27), so a real calculation is done: Pension Credit
+    guarantee level as the applicable amount, 20% taper on income above it,
+    the same £10,000-£16,000 deemed-income rule on savings as Pension Credit
+    itself, and Guarantee Credit recipients passported to a reduction to nil.
+    A new optional question asks for the person's actual council tax bill
+    (falls back to the England average Band D bill, £2,392/yr, with confidence
+    downgraded when it's used). Severe disability/carer/child premiums and
+    non-dependant deductions are **not** modelled yet — flagged in the result,
+    not guessed at. Verified against Oxford City Council's and Durham County
+    Council's published pensioner scheme documents and the DWP/Age UK 2026/27
+    rates; ten new hand-computed cases added to `verify-maths.cjs`.
 - **Rates updated to 2026/27** and independently re-verified against GOV.UK on
   20 Aug: standard allowances £338.58 / £424.90 / £528.34 / £666.97, child
   element £303.94, +£47.94 for a first child born before 6 April 2017, work
@@ -75,28 +202,58 @@ That makes everything below cheap to fix now and expensive to fix later.
 
 ## Tier 1 — before anyone else uses it
 
-### 1. The local council schemes are unverified
-The amounts are gone, which was right. What remains is still a claim: we tell
-someone their council runs a named scheme with particular eligibility. Ten of
-the twelve councils' entries were generated from two factory functions on the
-assumption that nearly every English council runs something like a Household
-Support Fund and a Discretionary Housing Payment. Broadly true, but the names
-and criteria are not checked.
+### 1. Fourteen hand-written council schemes are still unverified
+The wrong half of this problem is fixed: the 22 generated entries that named
+dead schemes are gone. What remains is 14 hand-written entries — Leeds Healthy
+Holidays, Birmingham Energy Savers, Newcastle Compassionate Fund, Westminster
+Emergency Support Scheme and the rest — of which 12 have never been checked
+against anything, 1 is verified and 1 is disputed.
 
-Fix: verify one council end to end against its own website, see how far the
-generated text was off, and let that tell you how much work the other eleven are.
+This is still a claim: we tell someone their council runs a named scheme with
+particular eligibility. Two have been spot-checked, with mixed results. Leeds
+Healthy Holidays is real and running. The Leeds Council Tax Hardship Fund is
+not mentioned on Leeds' own Council Tax Support page, where it would most
+obviously sit — every billing authority holds the s13A(1)(c) discretionary
+reduction power, so something may exist under another name, but the app's
+specific claim is unsupported by the obvious source. That one is marked
+`disputed` in the data and still shown; whether to keep showing a disputed
+entry is a separate decision nobody has made yet.
+
+Fix: one council at a time. Find the real scheme page, check the scheme exists,
+record the result in `verification`. There is no shortcut and it does not
+generalise — these are each one council's own invention.
+
+### 2. Most scheme links point at a council homepage, not the scheme
+Of the entries that remain, most still link to a council homepage, so the
+"find out more" button drops the reader on a front page and leaves them to
+search. The two CRF entries point at gov.uk's "find your local council" rather
+than at each council's own CRF page.
+
+No logic, no maths — just finding the right page. Worth doing in the same pass
+as item 1, since verifying a scheme means being on its page anyway.
 
 ---
 
 ## Tier 2 — before it goes anywhere near the public
 
-### 3. Agree a review step
+### 3. Nobody has opened the what-if panel by hand
+Every check on it is a Playwright assertion written by the same person who
+wrote the feature. That is a genuinely strong suite — 131 checks, each verified
+able to fail — but it has never been dragged on a real phone, and four of the
+six adversarial passes found faults a suite alone had not. Worth half an hour
+with a real device before it is treated as done.
+
+### 4. Agree a review step
 Two people now push to `main`. The four calculation errors found on 18 August
 all looked completely reasonable in the code; only the hand-computed maths suite
 caught them. Worth agreeing that anything touching `data/schemes.js` runs the
 full suite before merge, and ideally goes via a pull request.
 
-### 4. Test on Safari
+Note the two contributors currently work differently: Quinn uses branches and
+PRs (#1–#4), Jake commits straight to `main`. Picking one is the decision, and
+it is now the oldest open item on this list.
+
+### 5. Test on Safari
 The council search uses a native `<datalist>`, which Safari has historically
 handled poorly. Roughly a third of UK mobile traffic is Safari. If it degrades
 badly, the manual council route is broken for those users and only the postcode
@@ -106,37 +263,51 @@ path works. Cheap to check on an iPhone; currently unknown.
 
 ## Tier 3 — when there's time
 
-### 5. Real per-council figures for working-age Council Tax Support
-Right now working-age Council Tax Support is signposted with no pound figure,
-for every council (see "Recently completed" above) — the honest fix for the
-invented-formula bug, but it means the app's single biggest opportunity
-(£3.3bn/yr unclaimed, second only to Universal Credit — see
-`BENEFITS-SHORTLIST.md`) still shows no number to most users.
+### 6. Real per-council figures for working-age Council Tax Support
+Working-age Council Tax Support is signposted with no pound figure, for every
+council — the honest fix for the invented-formula bug, but it means the app's
+single biggest opportunity (£3.3bn/yr unclaimed, second only to Universal
+Credit — see `BENEFITS-SHORTLIST.md`) still shows no number to most users. The
+September change narrowed *who* sees the signpost; it did not add a figure.
 
-Checked during today's fix: there is no current, complete, machine-readable
-dataset of all ~296 councils' working-age schemes. Each council publishes its
-own scheme as a separate PDF/webpage, updated annually, with genuinely
-different structures (income-banded, percentage-taper, minimum payments, band
-caps). The New Policy Institute/`entitledto` "rolling dataset" mentioned in
-NPI's review might be licensable rather than re-researched from scratch —
-worth a conversation with them before committing to manual research. Two
-realistic paths, not mutually exclusive:
+There is no current, complete, machine-readable dataset of all ~296 councils'
+working-age schemes. Each council publishes its own scheme as a separate
+PDF/webpage, updated annually, with genuinely different structures
+(income-banded, percentage-taper, minimum payments, band caps). The New Policy
+Institute/`entitledto` "rolling dataset" might be licensable rather than
+re-researched from scratch. Two realistic paths, not mutually exclusive:
 
-1. **Start with the 12 pilot councils** the app already covers locally (Leeds,
-   Birmingham, Bristol, Camden, Hackney, Liverpool, Manchester, Newcastle,
-   Nottingham, Sheffield, Tower Hamlets, Westminster). Extend the existing
-   `LOCAL_SCHEMES` pattern (already used for Household Support Fund/DHP) with
-   real, individually-verified working-age CTS figures for just these 12,
-   sourced from each council's own current scheme document.
+1. **Start with the 12 pilot councils.** Leeds publishes its scheme in
+   computable detail — four classes of UC claimant, 75% of maximum reduction
+   for most, a £16,000 capital limit, and a surplus income deduction of 15% of
+   income above the applicant's CTS personal allowance — which suggests this is
+   more tractable than it looked, at least where a council publishes a
+   structured document rather than prose.
 2. **Investigate licensing the NPI/entitledto dataset** rather than
-   transcribing ~296 PDFs by hand — ask them directly what it would take.
+   transcribing ~296 PDFs by hand.
 
-Whichever path, verify each council against its own primary source the way
-the pension-age fix was — a compiled-looking figure sourced from an AI
-summary of a secondary page is exactly how the original invented formula
-happened.
+Whichever path, verify each council against its own primary source the way the
+pension-age fix was — a compiled-looking figure sourced from an AI summary of a
+secondary page is exactly how the original invented formula happened.
 
-### 6. More benefits
+**This is the awkward case in the coverage model above**, and worth pulling
+forward from Tier 3 for that reason. It has category 3 shape — 296 genuinely
+different schemes — and category 2 value, being the single biggest unclaimed
+sum in the app. Licensing a maintained dataset is not a shortcut, it is the
+only route that converts this into category 2 work: bought data stays current,
+where hand-researched figures decay the moment nobody is checking them. The
+question to answer first is whether a sustainable source exists at all, because
+the answer shapes how far the local layer can ever go.
+
+### 7. Name the county for Crisis Payments
+Crisis Payments are run by the upper-tier authority, which in a two-tier area
+is the county council rather than the council that sends the council tax bill.
+The entry currently says so in words rather than naming it. postcodes.io
+already returns `admin_county` in the same response `data/postcodes.js` reads
+`admin_district` from, so naming it on the postcode path is cheap. It does not
+help the manual council-search path, which has no county to go on.
+
+### 8. More benefits
 Research complete — see `BENEFITS-SHORTLIST.md` for all 62 schemes with reach,
 value and take-up, and a tiered recommendation.
 
@@ -153,13 +324,28 @@ offset. It can leave a household worse off if modelled naively.
 Do not attempt to calculate PIP or Attendance Allowance. Both turn on functional
 assessment; only 37% of new PIP claims are awarded. Signpost only.
 
-### 7. Coverage
-Only 232 of 2,223 English postcode outcodes (10.4%) resolve to a council that
-has any local scheme data, so most users see "nothing for your council yet".
-Scotland, Wales and Northern Ireland aren't supported at all — and their schemes
-genuinely differ, so it isn't just a data-loading job.
+### 9. Coverage — the rest of the UK
+Read "How coverage works" above first; this item is only what is left after it.
 
-### 8. Housekeeping
+England is done for breadth and open-ended for depth, so there is nothing to do
+here for England that is not already item 6 or item 8.
+
+What is genuinely missing is **Scotland, Wales and Northern Ireland**, which
+are absent from the council list and the postcode data entirely. That is the
+one part of coverage that is a sequence: routing first, then the national
+schemes. Start by verifying what those schemes actually are — the expectation
+is that they are mostly national rather than per-council, which would make
+three nations cheaper than a dozen more English councils, but that expectation
+is unverified.
+
+The old framing of this item — "only 232 of 2,223 English outcodes (10.4%)
+reach a council with local scheme data" — is retired. It counted
+hand-researched bespoke schemes as if they were the whole local layer. Since
+19 September every English outcode reaches a council with real local content.
+The 10.4% figure still describes category 3 coverage, which is deliberately
+partial, so it is not a number to drive work from.
+
+### 10. Housekeeping
 - The desktop clone lives inside **OneDrive**, a known source of git trouble
   (locked files, sync conflicts on `.git`). The laptop clone is correctly
   outside it at `C:\Claude\Nonprofit`. Worth moving the desktop one too.
@@ -167,8 +353,14 @@ genuinely differ, so it isn't just a data-loading job.
   `add-npm-manifest-and-ons-attribution`) — delete if finished with.
 - HICBC compares take-home pay against a threshold defined in terms of adjusted
   *net* income. Different measures.
-- Node.js is not installed on either machine, so the tests and `npm run build`
-  cannot be run locally. Worth installing.
+- Node.js is still not installed on either Windows machine. The Mac clone can
+  run the two Node-side suites after `npm install`; the four browser suites
+  cannot run there, because Playwright's Chromium download is blocked. See
+  `NEXT-SESSION.md` for how the suites get run in practice.
+- `BENEFITS-SHORTLIST.md` still lists the Household Support Fund and
+  Discretionary Housing Payments among the schemes to signpost. That is August
+  research and true as written at the time, but both were replaced on 1 April
+  2026 — worth a note in that file if anyone touches it.
 
 ---
 

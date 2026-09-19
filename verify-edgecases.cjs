@@ -14,7 +14,9 @@ vm.createContext(ctx);
 const combined = ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
   .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8'))
   .join('\n;\n')
-  + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS,
+  + `\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCIL_WIDE_SCHEMES, COUNCILS,
+      CRF_DISTRICT_HOUSING_EXIT, crfDistrictHousingExitPassed, isEnglishCouncil,
+      WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT,
       ALL_ENGLAND_COUNCILS, ENGLAND_POSTCODE_DATA, matchOfflineCouncil,
       resolveCouncilByName, sanitiseInput, gbp, evaluateAll, sweep, bisect, findCliffs, findNearMiss, SWEEP_AXES });`;
 vm.runInContext(combined, ctx, { filename: 'app-combined.js' });
@@ -91,6 +93,82 @@ for (const t of pcTests) {
     out = 'THREW';
   }
   console.log(`  ${JSON.stringify(t).padEnd(34)} -> ${out === null ? '(no match)' : out}`);
+}
+
+console.log('\n=========== LOCAL SCHEME AMOUNTS MUST NOT REACH ANY TOTAL ===========\n');
+
+/* The amounts on local schemes are placeholders ({ value: 100, period:
+   "one-off" } and similar). They are inert today — renderLocalSection passes
+   showAmount: false, and the what-if engine takes only the national results —
+   but nothing enforced either, so one careless change turns £100 of
+   placeholder into real money on screen, or into the gate that decides
+   whether a near-miss card is worth showing at all.
+
+   These checks watch the real CALL SITES. Re-calling cashMonthlyAt() and
+   householdValueAnnual() here with hand-picked arguments would prove only
+   that this file passes them national results, which is not the property at
+   risk. Instead the two functions are wrapped for the duration of a real
+   near-miss and cliff run, and asked what they were actually handed.
+
+   The browser half of this guard is in verify-ui.js: sumEstimates() is called
+   from renderResultsStep(), which needs a DOM, so it cannot be exercised
+   here. */
+{
+  const localHousehold = app.sanitiseInput(baseInput({
+    council: 'leeds', children: 1, monthlyIncome: 500, housingCosts: 600, receivingUC: true
+  }));
+
+  const localIds = new Set();
+  Object.values(app.LOCAL_SCHEMES).forEach(arr => arr.forEach(sc => localIds.add(sc.id)));
+  const isLocal = r => !!(r && r.scheme && (r.scheme.category === 'local' || localIds.has(r.scheme.id)));
+
+  /* Vacuity guard. If Leeds' schemes stop matching this household — a changed
+     eligibility rule, a renamed council id — every check below passes without
+     testing anything, which is how a suite quietly stops working. */
+  const { local } = app.evaluateAll(localHousehold);
+  const withMoney = local.filter(r => r.result.amount && r.result.amount.value > 0);
+  console.log(`Test household (Leeds, 1 child, £500/mo, £600 rent, on UC): ${local.length} local scheme(s) eligible, ${withMoney.length} carrying a non-zero placeholder amount`);
+  if (!local.length) problems.push('GUARD IS VACUOUS: no local scheme is eligible for the test household, so nothing below is being tested');
+  if (!withMoney.length) problems.push('GUARD IS VACUOUS: no eligible local scheme carries a non-zero amount, so a leak would not show up');
+
+  const seen = { cashMonthlyAt: 0, householdValueAnnual: 0 };
+  const leaked = new Set();
+  const realCash = app.cashMonthlyAt;
+  const realHousehold = app.householdValueAnnual;
+
+  app.cashMonthlyAt = function (national) {
+    seen.cashMonthlyAt++;
+    (national || []).forEach(r => { if (isLocal(r)) leaked.add('cashMonthlyAt <- ' + r.scheme.id); });
+    return realCash.apply(this, arguments);
+  };
+  app.householdValueAnnual = function (national) {
+    seen.householdValueAnnual++;
+    (national || []).forEach(r => { if (isLocal(r)) leaked.add('householdValueAnnual <- ' + r.scheme.id); });
+    return realHousehold.apply(this, arguments);
+  };
+
+  try {
+    app.findNearMiss(localHousehold);
+    for (const axis of Object.keys(app.SWEEP_AXES)) {
+      app.sweep(localHousehold, axis);
+      app.findCliffs(localHousehold, axis);
+    }
+  } catch (e) {
+    problems.push('what-if run THREW during the local-amount guard: ' + e.message);
+  } finally {
+    app.cashMonthlyAt = realCash;
+    app.householdValueAnnual = realHousehold;
+  }
+
+  console.log(`  cashMonthlyAt() called ${seen.cashMonthlyAt}x, householdValueAnnual() called ${seen.householdValueAnnual}x during near-miss + cliff detection`);
+  if (!seen.cashMonthlyAt || !seen.householdValueAnnual) {
+    problems.push('GUARD IS VACUOUS: the wrapped totals were never called, so no leak could have been detected');
+  }
+  if (leaked.size) {
+    leaked.forEach(l => problems.push('LOCAL SCHEME REACHED A TOTAL: ' + l));
+  } else {
+    console.log('  no local scheme reached either total');
+  }
 }
 
 console.log('\n=========== SUMMARY ===========\n');
