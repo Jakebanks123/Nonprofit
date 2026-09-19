@@ -18,7 +18,11 @@ function evaluateAll(input) {
     .map(scheme => ({ scheme, result: scheme.evaluate(input) }))
     .filter(r => r.result.eligible);
 
-  const localSchemes = LOCAL_SCHEMES[input.council] || [];
+  /* COUNCIL_WIDE_SCHEMES leads: the Crisis and Resilience Fund entries are
+     the only ones in the council section whose existence is a funded fact
+     rather than hand research, and they apply to every English council, so
+     they are the part of this section most worth reading first. */
+  const localSchemes = COUNCIL_WIDE_SCHEMES.concat(LOCAL_SCHEMES[input.council] || []);
   const local = localSchemes
     .map(scheme => ({ scheme, result: scheme.evaluate(input) }))
     .filter(r => r.result.eligible);

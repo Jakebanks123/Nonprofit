@@ -64,9 +64,19 @@ this wrong; the element just renders unstyled.
 
 Adding a new scheme is just adding an object to `NATIONAL_SCHEMES` (or to a council's array in
 `LOCAL_SCHEMES`) in `data/schemes.js` with an `evaluate(input)` function — no other code needs to
-change. Two helper factories, `makeHouseholdSupportFund()` and `makeDiscretionaryHousingPayment()`,
-cover the two scheme types nearly every English council runs in some form, so adding a council is
-usually only a few lines.
+change. A third list, `COUNCIL_WIDE_SCHEMES`, holds schemes every English council runs — currently
+the two Crisis and Resilience Fund payment types — and is evaluated for every English council
+alongside that council's own array.
+
+There used to be two helper factories here, `makeHouseholdSupportFund()` and
+`makeDiscretionaryHousingPayment()`, which generated an entry per council on the assumption that
+nearly every English council runs something like each. Both were deleted in September 2026,
+along with 22 entries: the Household Support Fund and Discretionary Housing Payments were
+replaced by the Crisis and Resilience Fund on 1 April 2026, so every generated entry named a
+scheme that no longer existed. Generating scheme entries from an assumption about what a council
+probably runs is not a pattern to reintroduce. `COUNCIL_WIDE_SCHEMES` is not the same thing: every
+English authority demonstrably receives a CRF allocation, so those entries state a funded fact
+rather than a guess.
 
 ### How the postcode lookup works
 

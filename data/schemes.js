@@ -53,6 +53,81 @@ function ratesStaleness(now) {
   };
 }
 
+/* THE CRISIS AND RESILIENCE FUND. Replaced two things at once in England on
+   1 April 2026, which is why 22 entries in this file named schemes that no
+   longer exist:
+
+   - Discretionary Housing Payments. "DHPs will come to an end in England on
+     31 March 2026. From 1 April 2026, DHPs will be replaced by the Housing
+     Payment strand of the CRF" (CRF guidance, verbatim).
+   - The Household Support Fund. Note the guidance does NOT say this. The
+     final HSF period ran 1 April 2025 to 31 March 2026 with no successor
+     period announced, and CRF took its place from 1 April 2026 — a
+     well-supported inference, not a quotable fact. Recorded as an inference
+     deliberately: an unsourced claim stated as fact is what this file keeps
+     getting wrong.
+
+   The fund runs 1 April 2026 to 31 March 2029 and is worth £858,004,578 for
+   England in 2026-27. It has four strands — Crisis Payments, Housing
+   Payments, Resilience Services and Community Coordination — but only the
+   first two are things an individual can apply for. The other two are
+   commissioned services (debt advice, community capacity), so they are
+   deliberately not scheme cards here.
+
+   WHICH COUNCIL RUNS WHICH STRAND. The grant determination splits the money
+   by tier: "For unitary authorities – funding for crisis and resilience
+   activities, housing payments and local authority housing administration
+   costs; For upper tier authorities – funding for crisis and resilience
+   activities; For lower tier authorities – funding for housing payments and
+   local authority housing administration costs."
+
+   So Housing Payments are run by the BILLING authority — the council that
+   sends the council tax bill, which is what a postcode already resolves to
+   here. Crisis Payments are run by the UPPER-TIER authority, which in a
+   two-tier area is the county council and not the billing authority. The app
+   cannot currently name that county, so the Crisis Payment copy below says so
+   rather than naming the wrong council. */
+const CRF_GUIDANCE_URL = "https://www.gov.uk/government/publications/crisis-and-resilience-fund-guidance-for-local-authorities-in-england-1-april-2026-to-31-march-2029/the-crisis-and-resilience-fund-guidance-for-local-authorities-in-england-1-april-2026-to-31-march-2029";
+
+/* Districts receive a Housing Payment allocation in years 1 and 2 only:
+   "From Year 3 (the FYE March 2029), District Councils will no longer receive
+   an allocation for The Fund. Instead, all the CRF funding will be
+   distributed to Unitary Authorities (and County Councils that continue to
+   operate in the FYE March 2029)."
+
+   The financial year ending March 2029 begins on 1 April 2028, so from that
+   date the answer to "which council do I apply to for a Housing Payment"
+   changes from the billing authority to the upper-tier one. That is a change
+   of ANSWER, not just of funding line, so it needs the same tripwire
+   treatment as RATES_TAX_YEAR rather than a comment nobody reads.
+   verify-maths.cjs fails once this date has passed. */
+const CRF_DISTRICT_HOUSING_EXIT = "2028-04-01";
+
+function crfDistrictHousingExitPassed(now) {
+  return (now || new Date()) >= new Date(CRF_DISTRICT_HOUSING_EXIT + "T00:00:00Z");
+}
+
+/* Working-age Council Tax Support has no national capital limit — each
+   council sets its own — so this is a threshold for HIDING a signpost, never
+   for calculating an amount. £16,000 is the commonest working-age capital
+   limit and is the one Leeds applies in its published 2026-27 scheme. Above
+   it, telling someone they are "very likely" to qualify is the same
+   over-claim the invented national formula made, in the other direction. */
+const WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT = 16000;
+
+/* CRF is England-only. A postcode outside England reaches here as council
+   "other" with a detected district name from the live lookup, which covers
+   the whole UK — so "we did not recognise the council" and "the council is
+   not in England" have to be told apart, or a Cardiff resident is told about
+   a fund that does not exist for them. */
+function isEnglishCouncil(input) {
+  if (input.council && input.council !== "other") return true;
+  const name = (input.detectedDistrict || "").toLowerCase();
+  if (!name) return false;
+  return typeof ENGLAND_COUNCIL_LOOKUP_BY_LOWER !== "undefined"
+    && Object.prototype.hasOwnProperty.call(ENGLAND_COUNCIL_LOOKUP_BY_LOWER, name);
+}
+
 function weeklyIncome(input) {
   return (input.monthlyIncome * 12) / 52;
 }
@@ -308,6 +383,20 @@ const NATIONAL_SCHEMES = [
       // honestly price. Real per-council figures for the pilot councils are
       // a planned follow-up — see PRIORITIES.md.
       if (!isOverPensionAge(input)) {
+        /* No income or savings test used to be applied here at all, so a
+           working-age household on £8,000 a month with £200,000 in the bank
+           was told it was "very likely" to get a reduction. The pension-age
+           branch below has always applied the £16,000 capital limit; this
+           branch returned before reaching it. Same bug as commit 0897f71,
+           mirrored.
+
+           This hides the signpost rather than calculating anything — see
+           WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT. Income is deliberately not
+           gated: capital limits are near-universal across council schemes and
+           cluster on one number, while income thresholds are the part that
+           genuinely differs council to council, so any income line here would
+           be invented. */
+        if (input.savings > WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
@@ -422,51 +511,6 @@ const NATIONAL_SCHEMES = [
    https page that was actually read. Nothing in the UI reads this yet — it is
    a data-quality tripwire first, the same shape as RATES_TAX_YEAR. */
 
-/* Two scheme types exist in almost every English council in some form
-   (Household Support Fund top-ups and Discretionary Housing Payments),
-   so these factories keep new councils to a few lines each rather than
-   repeating near-identical logic. */
-function makeHouseholdSupportFund(councilId, label, url, incomeThreshold, amount) {
-  return {
-    id: councilId + "-household-support",
-    name: label + " Household Support Fund grant",
-    url,
-    category: "local",
-    verification: { status: "unchecked" },
-    evaluate(input) {
-      if (!(input.monthlyIncome < incomeThreshold || input.hasDisabilityOrHealthCondition || input.children > 0)) {
-        return { eligible: false };
-      }
-      return {
-        eligible: true,
-        confidence: "possible",
-        amount: { value: amount, period: "one-off" },
-        reason: label + " residents on a low income, with children, or with a disability can apply for one-off crisis grants (food, energy, essentials)."
-      };
-    }
-  };
-}
-
-function makeDiscretionaryHousingPayment(councilId, label, url) {
-  return {
-    id: councilId + "-dhp",
-    name: label + " Discretionary Housing Payment",
-    url,
-    category: "local",
-    verification: { status: "unchecked" },
-    evaluate(input) {
-      if (!(input.housingCosts > 0)) return { eligible: false };
-      if (!(input.receivingUC || input.monthlyIncome < 1500)) return { eligible: false };
-      return {
-        eligible: true,
-        confidence: "possible",
-        amount: { value: 80, period: "month" },
-        reason: "If Universal Credit or Housing Benefit doesn't fully cover your rent, " + label + " can top up housing costs on a discretionary basis."
-      };
-    }
-  };
-}
-
 const LOCAL_SCHEMES = {
   leeds: [
     {
@@ -487,23 +531,6 @@ const LOCAL_SCHEMES = {
           confidence: "possible",
           amount: { value: 100, period: "one-off" },
           reason: "Leeds residents already getting Council Tax Support who are struggling can apply to this discretionary top-up fund."
-        };
-      }
-    },
-    {
-      id: "leeds-dhp",
-      name: "Leeds Discretionary Housing Payment",
-      url: "https://www.leeds.gov.uk/benefits/discretionary-housing-payments",
-      category: "local",
-      verification: { status: "unchecked" },
-      evaluate(input) {
-        if (!(input.housingCosts > 0)) return { eligible: false };
-        if (!(input.receivingUC || input.monthlyIncome < 1500)) return { eligible: false };
-        return {
-          eligible: true,
-          confidence: "possible",
-          amount: { value: 80, period: "month" },
-          reason: "If Universal Credit or Housing Benefit doesn't fully cover your rent, Leeds can top up housing costs on a discretionary basis."
         };
       }
     },
@@ -531,22 +558,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   birmingham: [
-    {
-      id: "birmingham-household-support",
-      name: "Birmingham Household Support Fund grant",
-      url: "https://www.birmingham.gov.uk/homepage/28/household_support_fund",
-      category: "local",
-      verification: { status: "unchecked" },
-      evaluate(input) {
-        if (!(input.monthlyIncome < 1800 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
-        return {
-          eligible: true,
-          confidence: "possible",
-          amount: { value: 100, period: "one-off" },
-          reason: "Birmingham residents on a low income, with children, or with a disability can apply for one-off crisis grants (food, energy, essentials)."
-        };
-      }
-    },
     {
       id: "birmingham-energy-savers",
       name: "Birmingham Energy Savers",
@@ -581,8 +592,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   manchester: [
-    makeHouseholdSupportFund("manchester", "Manchester", "https://www.manchester.gov.uk/", 1800, 100),
-    makeDiscretionaryHousingPayment("manchester", "Manchester", "https://www.manchester.gov.uk/"),
     {
       id: "manchester-local-assistance",
       name: "Manchester Local Assistance Scheme",
@@ -601,8 +610,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   liverpool: [
-    makeHouseholdSupportFund("liverpool", "Liverpool", "https://liverpool.gov.uk/", 1800, 100),
-    makeDiscretionaryHousingPayment("liverpool", "Liverpool", "https://liverpool.gov.uk/"),
     {
       id: "liverpool-citizens-support",
       name: "Liverpool Citizens Support Scheme",
@@ -621,8 +628,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   sheffield: [
-    makeHouseholdSupportFund("sheffield", "Sheffield", "https://www.sheffield.gov.uk/", 1800, 100),
-    makeDiscretionaryHousingPayment("sheffield", "Sheffield", "https://www.sheffield.gov.uk/"),
     {
       id: "sheffield-local-assistance",
       name: "Sheffield Local Assistance Scheme",
@@ -641,8 +646,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   bristol: [
-    makeHouseholdSupportFund("bristol", "Bristol", "https://www.bristol.gov.uk/", 1800, 100),
-    makeDiscretionaryHousingPayment("bristol", "Bristol", "https://www.bristol.gov.uk/"),
     {
       id: "bristol-council-tax-hardship",
       name: "Bristol Council Tax Hardship Fund",
@@ -661,8 +664,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   newcastle: [
-    makeHouseholdSupportFund("newcastle", "Newcastle", "https://www.newcastle.gov.uk/", 1800, 100),
-    makeDiscretionaryHousingPayment("newcastle", "Newcastle", "https://www.newcastle.gov.uk/"),
     {
       id: "newcastle-compassionate-fund",
       name: "Newcastle Compassionate Fund",
@@ -681,8 +682,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   nottingham: [
-    makeHouseholdSupportFund("nottingham", "Nottingham", "https://www.nottinghamcity.gov.uk/", 1800, 100),
-    makeDiscretionaryHousingPayment("nottingham", "Nottingham", "https://www.nottinghamcity.gov.uk/"),
     {
       id: "nottingham-local-welfare",
       name: "Nottingham Local Welfare Assistance",
@@ -701,8 +700,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   westminster: [
-    makeHouseholdSupportFund("westminster", "Westminster", "https://www.westminster.gov.uk/", 1900, 120),
-    makeDiscretionaryHousingPayment("westminster", "Westminster", "https://www.westminster.gov.uk/"),
     {
       id: "westminster-emergency-support",
       name: "Westminster Emergency Support Scheme",
@@ -721,8 +718,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   hackney: [
-    makeHouseholdSupportFund("hackney", "Hackney", "https://hackney.gov.uk/", 1900, 120),
-    makeDiscretionaryHousingPayment("hackney", "Hackney", "https://hackney.gov.uk/"),
     {
       id: "hackney-local-welfare",
       name: "Hackney Local Welfare Assistance",
@@ -741,8 +736,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   camden: [
-    makeHouseholdSupportFund("camden", "Camden", "https://www.camden.gov.uk/", 1900, 120),
-    makeDiscretionaryHousingPayment("camden", "Camden", "https://www.camden.gov.uk/"),
     {
       id: "camden-resident-support",
       name: "Camden Resident Support Scheme",
@@ -761,8 +754,6 @@ const LOCAL_SCHEMES = {
     }
   ],
   "tower-hamlets": [
-    makeHouseholdSupportFund("tower-hamlets", "Tower Hamlets", "https://www.towerhamlets.gov.uk/", 1900, 120),
-    makeDiscretionaryHousingPayment("tower-hamlets", "Tower Hamlets", "https://www.towerhamlets.gov.uk/"),
     {
       id: "tower-hamlets-resident-support",
       name: "Tower Hamlets Resident Support Scheme",
@@ -783,10 +774,93 @@ const LOCAL_SCHEMES = {
   other: []
 };
 
+/* ---------- SCHEMES EVERY ENGLISH COUNCIL RUNS ---------- */
+
+/* LOCAL_SCHEMES is keyed by council, so it can only ever say something about
+   the 12 councils researched by hand. These two are different: the Crisis and
+   Resilience Fund is a funded national programme every English authority
+   receives an allocation from, so "your council runs one" is a fact about the
+   funding settlement rather than an assumption about an individual council.
+   That is why these can cover all of England while the entries above cannot —
+   and it is the whole reason the factories that used to live here were wrong.
+   A factory guesses that a council runs something; this knows it does.
+
+   Both carry no amount. Crisis Payment amounts are set locally and Housing
+   Payment awards are discretionary, so any figure would be invented. They are
+   category "local" so they render in the council section without amounts and
+   stay out of every total — verify-edgecases.cjs and verify-ui.js fail if
+   that stops being true. */
+const COUNCIL_WIDE_SCHEMES = [
+  {
+    id: "crf-housing-payment",
+    name: "Crisis and Resilience Fund Housing Payment",
+    url: "https://www.gov.uk/find-local-council",
+    category: "local",
+    verification: {
+      status: "verified",
+      date: "2026-09-19",
+      source: CRF_GUIDANCE_URL,
+      note: "Eligibility quoted from the CRF guidance: payments \"can be made to claimants who are entitled to either: HB (Housing Benefit) [or] UC (Universal Credit) with housing costs towards rental liability\". Unlike everything else in the council section, this rule is set nationally, so it is the same in every English council."
+    },
+    evaluate(input) {
+      if (!isEnglishCouncil(input)) return { eligible: false };
+      /* The national rule is entitlement to Housing Benefit, OR to Universal
+         Credit including housing costs towards RENTAL liability. Two known
+         gaps, both deliberate and both stated on the card rather than hidden:
+
+         - The app does not ask about Housing Benefit, so legacy HB claimants
+           who are not on UC are missed. Under-inclusive.
+         - The app asks for "Rent or mortgage" as one figure, so a UC claimant
+           paying a mortgage passes this gate but cannot qualify — a mortgage
+           is not a rental liability, and UC helps with it through Support for
+           Mortgage Interest loans instead. Over-inclusive.
+
+         The previous rule here was `receivingUC || monthlyIncome < 1500`,
+         where the income half was invented outright. This is narrower and
+         sourced, and the note tells the reader the condition to check. */
+      if (!(input.receivingUC && input.housingCosts > 0)) return { eligible: false };
+      return {
+        eligible: true,
+        confidence: "possible",
+        reason: "If your Universal Credit includes housing costs for rent and it doesn't cover all of it, your council can pay towards the shortfall. This replaced Discretionary Housing Payments on 1 April 2026.",
+        note: "This one is only for rent — if what you pay is a mortgage, it won't apply. It is discretionary, so your council decides the amount and how long it runs for. If you get Housing Benefit rather than Universal Credit you can apply too; we didn't ask about that."
+      };
+    }
+  },
+  {
+    id: "crf-crisis-payment",
+    name: "Crisis and Resilience Fund Crisis Payment",
+    url: "https://www.gov.uk/find-local-council",
+    category: "local",
+    verification: {
+      status: "verified",
+      date: "2026-09-19",
+      source: CRF_GUIDANCE_URL,
+      note: "The guidance leaves eligibility to each authority: \"Authorities have flexibility within The Fund to apply their own discretion when determining eligibility for their Crisis Payment schemes, including what constitutes a low-income in their area.\" So there is no national criterion to test against, and this entry signposts rather than assessing."
+    },
+    evaluate(input) {
+      if (!isEnglishCouncil(input)) return { eligible: false };
+      /* No criteria, deliberately. Every criterion is set locally, so any
+         income or savings line here would be invented — the same mistake the
+         old Household Support Fund factory made with its £1,800 threshold.
+         Shown to everyone instead, with copy that describes the scheme rather
+         than making a claim about the reader. */
+      return {
+        eligible: true,
+        confidence: "possible",
+        reason: "Every council in England runs a Crisis Payment scheme for people hit by a sudden financial shock — help with food, energy, other essentials, or replacing something you can't manage without. It replaced the Household Support Fund on 1 April 2026.",
+        note: "Each council sets its own rules for this, including what counts as a low income in their area, so we can't tell you whether you'd qualify. Outside the cities and London boroughs it is usually run by the county council rather than the council that sends your council tax bill."
+      };
+    }
+  }
+];
+
 /* Exported for the Node test suite; ignored in the browser. */
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { NATIONAL_SCHEMES, LOCAL_SCHEMES, gbp, RATES_TAX_YEAR,
     ukTaxYearOf, ratesStaleness,
     weeklyIncome, annualIncome, isOverPensionAge,
-    makeHouseholdSupportFund, makeDiscretionaryHousingPayment };
+    COUNCIL_WIDE_SCHEMES, isEnglishCouncil,
+    CRF_GUIDANCE_URL, CRF_DISTRICT_HOUSING_EXIT, crfDistrictHousingExitPassed,
+    WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT };
 }

@@ -11,7 +11,7 @@ vm.createContext(ctx);
 vm.runInContext(
   ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
     .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n;\n')
-  + '\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCILS });',
+  + '\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCIL_WIDE_SCHEMES, COUNCILS });',
   ctx, { filename: 'app-combined.js' });
 const app = ctx;
 
@@ -20,7 +20,7 @@ const problems = [];
 
 (async () => {
   console.log('===== SCHEME DATA SANITY =====\n');
-  const allSchemes = [...app.NATIONAL_SCHEMES];
+  const allSchemes = [...app.NATIONAL_SCHEMES, ...app.COUNCIL_WIDE_SCHEMES];
   Object.entries(app.LOCAL_SCHEMES).forEach(([k, arr]) => arr.forEach(s => allSchemes.push(s)));
   const ids = new Set();
   for (const s of allSchemes) {
@@ -51,7 +51,11 @@ const problems = [];
   const today = new Date().toISOString().slice(0, 10);
   const statusCounts = { unchecked: 0, verified: 0, disputed: 0 };
 
-  Object.entries(app.LOCAL_SCHEMES).forEach(([councilId, arr]) => arr.forEach(s => {
+  /* The council-wide CRF entries are council-section schemes too, so they are
+     held to the same verification standard as the per-council ones. */
+  const verifiable = Object.entries(app.LOCAL_SCHEMES)
+    .concat([['all-england', app.COUNCIL_WIDE_SCHEMES]]);
+  verifiable.forEach(([councilId, arr]) => arr.forEach(s => {
     const where = councilId + '/' + s.id;
     const v = s.verification;
     if (!v || typeof v !== 'object') {

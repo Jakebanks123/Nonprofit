@@ -605,12 +605,28 @@ function renderLocalSection(localResults) {
 
   if (state.input.council === "other") {
     const named = state.input.detectedDistrict ? `<strong>${state.input.detectedDistrict}</strong>` : "your council";
+    /* This branch used to return early with nothing but an apology, because
+       there was genuinely nothing to say about a council outside the pilot 12.
+       The Crisis and Resilience Fund entries changed that: every English
+       council receives a CRF allocation, so a recognised English district now
+       gets real cards here. The apology is still true — we have not researched
+       that council's own schemes — so it stays, reworded to say what it
+       actually means rather than implying there is nothing for them. */
+    const cards = localResults.length ? `
+      <ul role="list" class="flex flex-col gap-3 mt-3">
+        ${localResults.map(entry => renderSchemeCard(entry, false)).join("")}
+      </ul>
+    ` : "";
+    const rest = localResults.length
+      ? "The help below is run by every council in England, so it applies wherever you are."
+      : `${named} may still offer help, so it is worth checking their website. Everything above still applies to you.`;
     return `
       <h2 class="${SECTION_HEADING}">From your council — ${heading}</h2>
       <div class="rounded-field border border-line bg-canvas p-4">
-        <p class="text-base text-pretty text-muted">We do not have ${named}'s own schemes yet. We only cover 12 councils so far. ${named} may still offer help, so it is worth checking their website. Everything above still applies to you.</p>
+        <p class="text-base text-pretty text-muted">We have not researched ${named}'s own schemes yet — we only cover 12 councils so far. ${rest}</p>
         <p class="mt-3.5"><a class="block rounded-full border border-brand-600 bg-brand-600 px-4 py-2.5 text-center text-base font-medium text-white no-underline" href="https://www.gov.uk/find-local-council" target="_blank" rel="noopener noreferrer">Find your council on gov.uk<span class="sr-only"> (opens in a new tab)</span></a></p>
       </div>
+      ${cards}
     `;
   }
 
