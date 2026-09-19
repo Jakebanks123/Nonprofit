@@ -13,6 +13,70 @@ message or document may not be item 3 here.
 
 ---
 
+## How coverage works
+
+The local layer is the point of this app. National benefits are already well
+served by Turn2us, entitledto and Citizens Advice; what they do not do is tell
+someone what their own council runs. "Cover fewer councils" is therefore not a
+cautious version of this product — it is a different and worse one.
+
+But "add a council" means three different things with completely different
+economics, and keeping them apart is what stops the coverage question going
+round in circles.
+
+**1. Routing — which council a postcode belongs to.** Done for England: all 296
+billing authorities resolve from a postcode, via the live postcodes.io lookup
+and the bundled ONS data behind it. Not done at all for Scotland, Wales or
+Northern Ireland, which are absent from the council list entirely — a Cardiff
+postcode currently gets UK-wide benefits and nothing else.
+
+**2. Schemes with national rules that councils deliver.** The Crisis and
+Resilience Fund, Council Tax Support, the single person discount, Blue Badge,
+free school meals, and the s13A(1)(c) discretionary reduction power every
+billing authority holds. The rules come from one place, so one piece of
+research covers every council at near-zero marginal cost. CRF went England-wide
+in a single step on 19 September for exactly this reason.
+
+**3. Bespoke council inventions.** Leeds Healthy Holidays, Birmingham Energy
+Savers, Newcastle Compassionate Fund. No list, no dataset, no common shape.
+One council at a time, forever.
+
+### What follows from that
+
+**Breadth is already solved for England.** Every English postcode resolves to a
+council, and since 19 September every one of them returns real content. There
+is no English postcode that gets nothing — so there is no countrywide gap left
+to close, and "countrywide coverage" should not be written down as a goal. It
+implies a finish line that does not exist and a gap that is already shut.
+
+**Depth is per-scheme, and open-ended.** Each category 2 scheme lands for all
+296 councils at once. It deepens what every council's page says rather than
+extending the map. There is no finish line here either, just schemes we have
+and schemes we do not.
+
+**So the completion criterion is per-scheme, never per-council**: *this scheme
+is live for every council it applies to.* CRF meets it. Council Tax Support
+meets it as a signpost, and will not meet it as a figure until item 6 is
+solved.
+
+**Category 3 stays partial on purpose.** Twelve councils covered properly, with
+the UI saying so, beats 296 covered badly. The argument is value before
+maintenance: a holiday activities scheme matters less to a household than
+getting their Council Tax Support right, and it costs more per entry to find
+and keep current.
+
+**The one genuine sequence is the rest of the UK.** Routing has to exist before
+anything can be shown there, so it is category 1 then category 2, in that
+order. It is probably not much work: the devolved schemes are mostly national
+rather than per-council — the Scottish Welfare Fund, the Welsh Discretionary
+Assistance Fund, and Council Tax Reduction, which unlike England is a national
+scheme in both Scotland and Wales. Roughly a dozen entries for three nations,
+if that holds up. **It has not been verified yet, and must be before it is
+planned** — a plausible-sounding summary of another nation's benefit system is
+the same failure mode as the invented council tax formula.
+
+---
+
 ## Recently completed
 
 ### September 2026
@@ -226,6 +290,15 @@ Whichever path, verify each council against its own primary source the way the
 pension-age fix was — a compiled-looking figure sourced from an AI summary of a
 secondary page is exactly how the original invented formula happened.
 
+**This is the awkward case in the coverage model above**, and worth pulling
+forward from Tier 3 for that reason. It has category 3 shape — 296 genuinely
+different schemes — and category 2 value, being the single biggest unclaimed
+sum in the app. Licensing a maintained dataset is not a shortcut, it is the
+only route that converts this into category 2 work: bought data stays current,
+where hand-researched figures decay the moment nobody is checking them. The
+question to answer first is whether a sustainable source exists at all, because
+the answer shapes how far the local layer can ever go.
+
 ### 7. Name the county for Crisis Payments
 Crisis Payments are run by the upper-tier authority, which in a two-tier area
 is the county council rather than the council that sends the council tax bill.
@@ -251,14 +324,26 @@ offset. It can leave a household worse off if modelled naively.
 Do not attempt to calculate PIP or Attendance Allowance. Both turn on functional
 assessment; only 37% of new PIP claims are awarded. Signpost only.
 
-### 9. Coverage
-Every English council now gets the two Crisis and Resilience Fund cards, so
-"nothing for your council yet" is no longer the whole story outside the pilot
-12. What is still thin is councils' *own* schemes: only 232 of 2,223 English
-postcode outcodes (10.4%) resolve to a council with any hand-researched local
-scheme data. Scotland, Wales and Northern Ireland aren't supported at all — and
-their schemes genuinely differ, so it isn't just a data-loading job. CRF is
-England-only and gated accordingly.
+### 9. Coverage — the rest of the UK
+Read "How coverage works" above first; this item is only what is left after it.
+
+England is done for breadth and open-ended for depth, so there is nothing to do
+here for England that is not already item 6 or item 8.
+
+What is genuinely missing is **Scotland, Wales and Northern Ireland**, which
+are absent from the council list and the postcode data entirely. That is the
+one part of coverage that is a sequence: routing first, then the national
+schemes. Start by verifying what those schemes actually are — the expectation
+is that they are mostly national rather than per-council, which would make
+three nations cheaper than a dozen more English councils, but that expectation
+is unverified.
+
+The old framing of this item — "only 232 of 2,223 English outcodes (10.4%)
+reach a council with local scheme data" — is retired. It counted
+hand-researched bespoke schemes as if they were the whole local layer. Since
+19 September every English outcode reaches a council with real local content.
+The 10.4% figure still describes category 3 coverage, which is deliberately
+partial, so it is not a number to drive work from.
 
 ### 10. Housekeeping
 - The desktop clone lives inside **OneDrive**, a known source of git trouble
