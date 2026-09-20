@@ -11,7 +11,7 @@ vm.createContext(ctx);
 vm.runInContext(
   ['data/postcodes.js', 'data/schemes.js', 'explore-core.js', 'app.js']
     .map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n;\n')
-  + '\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCIL_WIDE_SCHEMES, COUNCILS });',
+  + '\n;Object.assign(globalThis, { NATIONAL_SCHEMES, LOCAL_SCHEMES, COUNCIL_WIDE_SCHEMES, COUNCILS, evaluateAll, sanitiseInput });',
   ctx, { filename: 'app-combined.js' });
 const app = ctx;
 
@@ -46,10 +46,10 @@ const problems = [];
      not app.js, not explore-ui.js, not any suite — so the honesty marker never
      reached a user or a test. These checks are what make it load-bearing. The
      shape of the field is documented in data/schemes.js. */
-  const VERIFICATION_STATUSES = ['unchecked', 'verified', 'disputed'];
+  const VERIFICATION_STATUSES = ['unchecked', 'verified', 'disputed', 'unsupported'];
   const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
   const today = new Date().toISOString().slice(0, 10);
-  const statusCounts = { unchecked: 0, verified: 0, disputed: 0 };
+  const statusCounts = { unchecked: 0, verified: 0, disputed: 0, unsupported: 0 };
 
   /* The council-wide CRF entries are council-section schemes too, so they are
      held to the same verification standard as the per-council ones. */
@@ -81,12 +81,20 @@ const problems = [];
     } else if (v.date > today) {
       problems.push(where + ': verification.date ' + v.date + ' is in the future');
     }
-    if (!/^https:\/\//.test(v.source || '')) {
+    /* "unsupported" means a proper search found nothing, so by definition
+       there is usually no page to cite — a source is allowed but not required.
+       Every other checked status must name the page that was read. */
+    if (v.status === 'unsupported') {
+      if (v.source && !/^https:\/\//.test(v.source)) {
+        problems.push(where + ': verification.source is ' + JSON.stringify(v.source) + ', expected an https url or nothing');
+      }
+    } else if (!/^https:\/\//.test(v.source || '')) {
       problems.push(where + ': verification.source is ' + JSON.stringify(v.source)
         + ' — a ' + v.status + ' entry must name the https page that was read');
     }
-    if (v.status === 'disputed' && !v.note) {
-      problems.push(where + ': a disputed entry must say in verification.note what was checked and what was missing');
+    /* The note is what a future reader has instead of doing the search again. */
+    if ((v.status === 'disputed' || v.status === 'unsupported') && !v.note) {
+      problems.push(where + ': an entry marked ' + v.status + ' must say in verification.note what was searched and what was found');
     }
   }));
 

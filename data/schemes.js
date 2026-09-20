@@ -115,6 +115,24 @@ function crfDistrictHousingExitPassed(now) {
    over-claim the invented national formula made, in the other direction. */
 const WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT = 16000;
 
+/* An entry the app will not repeat: either the council's own site contradicts
+   it (disputed), or a proper search found nothing at all (unsupported). Until
+   that is resolved the app says nothing about it.
+
+   It stays in the data rather than being deleted, so the record of the claim
+   and why it failed survives — deleting it invites someone to re-add the same
+   entry later from the same bad source. Hiding rather than showing is the
+   direction this app errs in everywhere else: a scheme we cannot support is
+   worth less than the trust lost by sending someone to look for it.
+
+   `unchecked` is NOT hidden. Nobody has looked at those yet, and hiding
+   everything unverified would empty the council section on the strength of
+   work not having been done. */
+function isWithheldScheme(scheme) {
+  const status = scheme && scheme.verification && scheme.verification.status;
+  return status === "disputed" || status === "unsupported";
+}
+
 /* CRF is England-only. A postcode outside England reaches here as council
    "other" with a detected district name from the live lookup, which covers
    the whole UK — so "we did not recognise the council" and "the council is
@@ -502,10 +520,22 @@ const NATIONAL_SCHEMES = [
        what the source did and did not confirm.
 
      { status: "disputed", date, source, note }
-       Someone looked and the claim was NOT supported. The entry is still
-       shown; `note` says what was checked and what was missing. Acting on a
-       disputed entry is a separate decision (PRIORITIES.md, local council
-       schemes), not something this field makes for you.
+       Someone looked and the council's own site contradicts the claim — the
+       scheme has closed, been replaced, or the page describes something else.
+       `source` is the page that contradicts it.
+
+     { status: "unsupported", date, note, source? }
+       Someone searched properly and found nothing at all. Distinct from
+       "unchecked", which means nobody has looked yet, and from "disputed",
+       which needs a council page saying the scheme is gone. This exists
+       because the strict evidence bar produced a bad result: an entry whose
+       name appears nowhere on the council's site — or, for the Newcastle
+       Compassionate Fund, nowhere on the open web at all — was still being
+       shown to users as "unchecked", because absence of evidence is not a
+       council statement. `note` must say where was searched. `source` is
+       optional here and usually absent: there is, by definition, no page.
+
+   DISPUTED AND UNSUPPORTED ENTRIES ARE NOT SHOWN. See isWithheldScheme().
 
    `date` is ISO YYYY-MM-DD and may not be in the future; `source` must be the
    https page that was actually read. Nothing in the UI reads this yet — it is
@@ -537,7 +567,7 @@ const LOCAL_SCHEMES = {
     {
       id: "leeds-healthy-holidays",
       name: "Leeds Healthy Holidays (school holiday support)",
-      url: "https://www.leeds.gov.uk/",
+      url: "https://moneyinformationcentre.leeds.gov.uk/healthy-holidays",
       category: "local",
       verification: {
         status: "verified",
@@ -545,14 +575,21 @@ const LOCAL_SCHEMES = {
         source: "https://moneyinformationcentre.leeds.gov.uk/healthy-holidays",
         note: "Leeds City Council's own page describes free activities with a hot meal for children eligible for income-related free school meals, at Easter, summer and Christmas, funded through the DfE Holiday Activities and Food programme. The page does not name a funding year, so the scheme running in 2026 is inferred from the page being current rather than stated on it."
       },
+      /* The published condition is that the child is eligible for
+         income-related free school meals. The app has no free-school-meals
+         question, and the `monthlyIncome < 1600` that used to stand in for
+         one was invented — FSM eligibility for a UC household is earnings
+         under 7,400 pounds a year, nothing like 1,600 a month. Rather than
+         keep a wrong proxy, the card is shown to any Leeds household with
+         children and names the real condition for the reader to check. */
       evaluate(input) {
         if (input.children <= 0) return { eligible: false };
-        if (!(input.receivingUC || input.monthlyIncome < 1600)) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
           amount: { value: 0, period: "n/a", display: "Free holiday activities & food" },
-          reason: "Free holiday clubs, activities and food during school holidays for children in low-income Leeds households."
+          reason: "Leeds runs free holiday clubs with activities and a hot meal at Easter, summer and Christmas, for children who get income-related free school meals.",
+          note: "It goes by free school meals eligibility, which we didn't ask about — check with Leeds or your child's school."
         };
       }
     }
@@ -561,9 +598,13 @@ const LOCAL_SCHEMES = {
     {
       id: "birmingham-energy-savers",
       name: "Birmingham Energy Savers",
-      url: "https://www.birmingham.gov.uk/",
+      url: "https://www.birmingham.gov.uk/info/20006/housing/2272/getting_help_with_your_energy_bills/4",
       category: "local",
-      verification: { status: "unchecked" },
+      verification: {
+        status: "unsupported",
+        date: "2026-09-19",
+        note: "The name appears nowhere on birmingham.gov.uk, including in policy PDFs. Off-domain sources, which do not meet the evidence bar but explain it, describe Birmingham Energy Savers as a 2012 Green Deal / ECO programme delivered under a Carillion contract, since closed. Two live council offers cover what this entry describes, and neither matches its gate: free energy advice through Act on Energy, open to \"anyone in the City\" with no income test; and the Warm Homes Local Grant 2025 to 2028, gated on an EPC rating of D to G, household income of £36,000 or less after housing costs, and owner or valid-tenancy status. The app asks for none of those, so neither can be modelled as this entry. Replacing it means splitting it in two — see PRIORITIES.md."
+      },
       evaluate(input) {
         if (!(input.monthlyIncome < 2000)) return { eligible: false };
         return {
@@ -579,7 +620,12 @@ const LOCAL_SCHEMES = {
       name: "Birmingham free leisure access (under 18 / 60+)",
       url: "https://www.birmingham.gov.uk/",
       category: "local",
-      verification: { status: "unchecked" },
+      verification: {
+        status: "disputed",
+        date: "2026-09-19",
+        source: "https://www.birmingham.gov.uk/info/20177/sport_and_leisure/604/kingstanding_wellbeing_centre/3",
+        note: "A free leisure offer is real, but this entry describes it wrongly and the council's own pages disagree with each other about the terms, so it is withheld rather than corrected on a guess. The council calls it Be Active. One council page says it \"offers a diverse range of free activities for all Birmingham residents to enjoy\" — no age condition, which contradicts this entry's under-18/60+ framing and its gate. Another, the Sport and leisure memberships page, says \"Direct debit customers can continue to access the BeActive program for free; however the offer to attend paid-for classes for free has now ceased\", which suggests the free offer is narrower than universal. No council page was found offering free leisure specifically to under-18s. Separately, Passport to Leisure is a paid discount card (up to 20% off, £6.90/yr at 60-69, free at 70+) covering over-60s, students, carers, asylum seekers, children in care, disabled people and some benefit claimants — which is what the 60+ half of this gate probably came from, and it is not free access. Replacing this needs the current Be Active terms pinned down with the council, then most likely two entries."
+      },
       evaluate(input) {
         if (!(input.children > 0 || input.age >= 60)) return { eligible: false };
         return {
@@ -591,38 +637,33 @@ const LOCAL_SCHEMES = {
       }
     }
   ],
-  manchester: [
-    {
-      id: "manchester-local-assistance",
-      name: "Manchester Local Assistance Scheme",
-      url: "https://www.manchester.gov.uk/",
-      category: "local",
-      verification: { status: "unchecked" },
-      evaluate(input) {
-        if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
-        return {
-          eligible: true,
-          confidence: "possible",
-          amount: { value: 0, period: "n/a", display: "Crisis support (furniture, food, essentials)" },
-          reason: "In-kind crisis support for Manchester residents facing an emergency, such as white goods, furniture or food vouchers."
-        };
-      }
-    }
-  ],
+  manchester: [],
   liverpool: [
     {
       id: "liverpool-citizens-support",
       name: "Liverpool Citizens Support Scheme",
-      url: "https://liverpool.gov.uk/",
+      url: "https://liverpool.gov.uk/benefits/help-in-a-crisis/liverpool-citizens-support-scheme/",
       category: "local",
-      verification: { status: "unchecked" },
+      verification: {
+        status: "verified",
+        date: "2026-09-19",
+        source: "https://liverpool.gov.uk/benefits/help-in-a-crisis/liverpool-citizens-support-scheme/",
+        note: "The council's own page, under exactly this name — the only one of the twelve entries whose name matched what the council publishes. Page: \"If you find yourself in crisis you can apply for support to get food and necessities for you and your family including gas and electric vouchers (urgent needs) and furniture.\" The app's £1,600/month gate is not a published figure and the council states no income threshold."
+      },
+      /* Signposted, not assessed. Liverpool publishes no income threshold
+         for this scheme; the 1,600/month gate that used to be here appeared
+         on no council page. Inventing a narrower version of a rule the
+         council has not written down decides who sees the card on a figure
+         nobody can check, so the card describes the scheme and leaves the
+         test to Liverpool — the shape working-age Council Tax Support and
+         the CRF Crisis Payment both use. */
       evaluate(input) {
-        if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
           amount: { value: 0, period: "n/a", display: "Crisis grants & essential items" },
-          reason: "Liverpool's local welfare scheme for residents facing a crisis, covering essential items, food and emergency costs."
+          reason: "Liverpool runs a local welfare scheme for residents in a crisis, covering food and necessities, gas and electricity vouchers, and furniture.",
+          note: "Liverpool doesn't publish an income limit for this, so we can't tell you whether you'd qualify — apply directly with the council."
         };
       }
     }
@@ -631,16 +672,28 @@ const LOCAL_SCHEMES = {
     {
       id: "sheffield-local-assistance",
       name: "Sheffield Local Assistance Scheme",
-      url: "https://www.sheffield.gov.uk/",
+      url: "https://www.sheffield.gov.uk/benefits/apply-benefits-support/local-assistance-scheme",
       category: "local",
-      verification: { status: "unchecked" },
+      verification: {
+        status: "verified",
+        date: "2026-09-19",
+        source: "https://www.sheffield.gov.uk/benefits/apply-benefits-support/local-assistance-scheme",
+        note: "Council page: \"The Local Assistance Scheme (LAS) provides Sheffield Independence Grants to support independent living and Sheffield Crisis Grants to help Sheffield residents in crisis situations who aren't receiving help.\" Published eligibility is residents who \"have insufficient income to meet their needs\" and are \"aged 16 years old or over\" — no figure. The app's £1,600/month gate is invented, and the age-16 condition is not modelled."
+      },
+      /* Sheffield publishes two conditions: "insufficient income to meet
+         their needs", which is a judgement the council makes and not a
+         figure the app can test, and "aged 16 years old or over", which is
+         a real published rule the app can answer. So the invented
+         1,600/month gate goes and the age condition — previously not
+         modelled at all — takes its place. */
       evaluate(input) {
-        if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
+        if (input.age < 16) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
           amount: { value: 0, period: "n/a", display: "Crisis support (goods & vouchers)" },
-          reason: "Short-term crisis support for Sheffield residents, such as food vouchers or essential household items."
+          reason: "Sheffield runs Independence Grants for independent living and Crisis Grants for residents in a crisis — help such as food vouchers or essential household items.",
+          note: "Sheffield's published test is that you're 16 or over and have insufficient income to meet your needs. It doesn't set an income figure, so we can't tell you whether you'd qualify."
         };
       }
     }
@@ -648,17 +701,27 @@ const LOCAL_SCHEMES = {
   bristol: [
     {
       id: "bristol-council-tax-hardship",
-      name: "Bristol Council Tax Hardship Fund",
-      url: "https://www.bristol.gov.uk/",
+      name: "Bristol Council Tax Discretionary Relief",
+      url: "https://www.bristol.gov.uk/files/documents/8439-council-tax-discretionary-relief-policy/file",
       category: "local",
-      verification: { status: "unchecked" },
+      verification: {
+        status: "verified",
+        date: "2026-09-19",
+        source: "https://www.bristol.gov.uk/files/documents/8439-council-tax-discretionary-relief-policy/file",
+        note: "Real, but the council does not call it a hardship fund. It is Council Tax Discretionary Relief, the s13A(1)(c) power every billing authority holds, set out in Bristol's own policy document: applicants must \"show that they are in severe financial hardship with insufficient funds for basic and essential needs, such as food, heating and medical expenses.\" No user-facing application page was found, only the policy — which is why the link is a PDF. The app's £1,700/month gate and its claim that you must already receive Council Tax Support are both unsupported by the policy."
+      },
+      /* Three separate inventions removed here. The 1,700/month gate is on
+         no Bristol page; the claim that you must already receive Council Tax
+         Support is not in the policy; and the 100 pound amount was a
+         placeholder for a relief whose size the policy does not state — it
+         is discretionary and decided case by case. What the policy does say
+         is the test, quoted in the card below. */
       evaluate(input) {
-        if (input.monthlyIncome >= 1700) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
-          amount: { value: 100, period: "one-off" },
-          reason: "Bristol residents already getting Council Tax Support who are struggling can apply to this discretionary top-up fund."
+          reason: "Every council can reduce a council tax bill at its discretion under section 13A(1)(c). Bristol asks applicants to show severe financial hardship, with insufficient funds for basic and essential needs such as food, heating and medical expenses.",
+          note: "The amount is decided case by case, so there's no figure we can give you. Bristol publishes this as a policy document rather than an application page."
         };
       }
     }
@@ -669,7 +732,11 @@ const LOCAL_SCHEMES = {
       name: "Newcastle Compassionate Fund",
       url: "https://www.newcastle.gov.uk/",
       category: "local",
-      verification: { status: "unchecked" },
+      verification: {
+        status: "unsupported",
+        date: "2026-09-19",
+        note: "Nothing found, anywhere. Searched newcastle.gov.uk and new.newcastle.gov.uk by site search and by section (Debt and money advice, Crisis and Resilience Fund, the legacy Crisis Support and Household Support Fund pages), plus an exact-phrase search of the open web. \"Newcastle Compassionate Fund\" returns no match on the council's site, on Turn2us, on Citizens Advice, or on any news or charity site. The council's money advice index names exactly one fund, the Crisis and Resilience Fund. The nearest matches are unrelated: the Newcastle Fund is a grants programme for voluntary organisations, and Newcastle Compassionate Community is an unconnected Facebook page. Most likely an invented entry."
+      },
       evaluate(input) {
         if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
@@ -681,92 +748,32 @@ const LOCAL_SCHEMES = {
       }
     }
   ],
-  nottingham: [
-    {
-      id: "nottingham-local-welfare",
-      name: "Nottingham Local Welfare Assistance",
-      url: "https://www.nottinghamcity.gov.uk/",
-      category: "local",
-      verification: { status: "unchecked" },
-      evaluate(input) {
-        if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
-        return {
-          eligible: true,
-          confidence: "possible",
-          amount: { value: 0, period: "n/a", display: "Crisis support (goods & vouchers)" },
-          reason: "Emergency support for Nottingham residents without enough money to meet short-term needs."
-        };
-      }
-    }
-  ],
-  westminster: [
-    {
-      id: "westminster-emergency-support",
-      name: "Westminster Emergency Support Scheme",
-      url: "https://www.westminster.gov.uk/",
-      category: "local",
-      verification: { status: "unchecked" },
-      evaluate(input) {
-        if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
-        return {
-          eligible: true,
-          confidence: "possible",
-          amount: { value: 0, period: "n/a", display: "Emergency grants & essential items" },
-          reason: "Westminster's local welfare scheme for residents in a financial emergency, covering essentials and crisis costs."
-        };
-      }
-    }
-  ],
-  hackney: [
-    {
-      id: "hackney-local-welfare",
-      name: "Hackney Local Welfare Assistance",
-      url: "https://hackney.gov.uk/",
-      category: "local",
-      verification: { status: "unchecked" },
-      evaluate(input) {
-        if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
-        return {
-          eligible: true,
-          confidence: "possible",
-          amount: { value: 0, period: "n/a", display: "Crisis support (food, energy, essentials)" },
-          reason: "Hackney's discretionary scheme for residents facing hardship or an unexpected crisis."
-        };
-      }
-    }
-  ],
-  camden: [
-    {
-      id: "camden-resident-support",
-      name: "Camden Resident Support Scheme",
-      url: "https://www.camden.gov.uk/",
-      category: "local",
-      verification: { status: "unchecked" },
-      evaluate(input) {
-        if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
-        return {
-          eligible: true,
-          confidence: "possible",
-          amount: { value: 0, period: "n/a", display: "Crisis grants & essential items" },
-          reason: "Camden's own hardship scheme, on top of national benefits, for residents struggling to cover essential costs."
-        };
-      }
-    }
-  ],
+  nottingham: [],
+  westminster: [],
+  hackney: [],
+  camden: [],
   "tower-hamlets": [
     {
       id: "tower-hamlets-resident-support",
-      name: "Tower Hamlets Resident Support Scheme",
-      url: "https://www.towerhamlets.gov.uk/",
+      name: "Tower Hamlets Residents' Support Scheme",
+      url: "https://www.towerhamlets.gov.uk/lgnl/advice_and_benefits/Residents_Support_Scheme.aspx",
       category: "local",
-      verification: { status: "unchecked" },
+      verification: {
+        status: "verified",
+        date: "2026-09-19",
+        source: "https://www.towerhamlets.gov.uk/lgnl/advice_and_benefits/Residents_Support_Scheme.aspx",
+        note: "Council page: \"The Residents' Support Scheme is designed to help residents who are either in or at risk of being in crisis or are in need of immediate help and have no source of financial support.\" Note the council spells it Residents' Support Scheme. The app's £1,700/month gate is not published anywhere on the page."
+      },
+      /* Signposted, not assessed. The 1,700/month gate appears nowhere on
+         the council's page, which states the test in words rather than
+         figures. */
       evaluate(input) {
-        if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
           amount: { value: 0, period: "n/a", display: "Crisis grants & essential items" },
-          reason: "Tower Hamlets' local welfare scheme for residents facing a financial crisis or unexpected hardship."
+          reason: "Tower Hamlets runs a scheme for residents who are in, or at risk of, a crisis and need immediate help with no other source of financial support.",
+          note: "The council doesn't publish an income limit for this, so we can't tell you whether you'd qualify — apply directly with Tower Hamlets."
         };
       }
     }
@@ -790,6 +797,33 @@ const LOCAL_SCHEMES = {
    category "local" so they render in the council section without amounts and
    stay out of every total — verify-edgecases.cjs and verify-ui.js fail if
    that stops being true. */
+/* Where a council publishes its own Crisis and Resilience Fund page, link to
+   it rather than to gov.uk's "find your local council". Found by checking each
+   council's own site on 19 September 2026.
+
+   These replaced five per-council entries that named schemes which no longer
+   exist — Manchester Local Assistance Scheme, Nottingham Local Welfare
+   Assistance, Westminster Emergency Support Scheme, Camden Resident Support
+   Scheme and Hackney Local Welfare Assistance. Every one of them turned out to
+   be that council's delivery of CRF Crisis Payments, so keeping them would
+   have shown two cards for one pot of money. Camden's was the clearest sign
+   the entries were never researched: "Resident Support Scheme" is Islington's
+   scheme name, and Tower Hamlets', not Camden's.
+
+   A council missing from this map is not a problem — the entry falls back to
+   the gov.uk lookup, which is correct everywhere, just less direct. */
+const CRF_COUNCIL_PAGES = {
+  manchester: "https://www.manchester.gov.uk/benefits-and-support/help-with-emergency-living-costs-and-crisis-support-in-manchester-crisis-and-resilience-fund",
+  nottingham: "https://www.nottinghamcity.gov.uk/information-for-residents/benefits/crisis-and-resilience-fund/i-need-help-now/",
+  westminster: "https://www.westminster.gov.uk/cost-of-living-support/the-crisis-and-resilience-fund",
+  camden: "https://www.camden.gov.uk/crisis-and-resilience-fund",
+  hackney: "https://www.hackney.gov.uk/council-tax-and-benefits/applying-extra-financial-help-council/get-help-crisis-and-resilience-fund"
+};
+
+function crfPageFor(input) {
+  return CRF_COUNCIL_PAGES[input.council] || null;
+}
+
 const COUNCIL_WIDE_SCHEMES = [
   {
     id: "crf-housing-payment",
@@ -821,6 +855,7 @@ const COUNCIL_WIDE_SCHEMES = [
       if (!(input.receivingUC && input.housingCosts > 0)) return { eligible: false };
       return {
         eligible: true,
+        url: crfPageFor(input),
         confidence: "possible",
         reason: "If your Universal Credit includes housing costs for rent and it doesn't cover all of it, your council can pay towards the shortfall. This replaced Discretionary Housing Payments on 1 April 2026.",
         note: "This one is only for rent — if what you pay is a mortgage, it won't apply. It is discretionary, so your council decides the amount and how long it runs for. If you get Housing Benefit rather than Universal Credit you can apply too; we didn't ask about that."
@@ -847,6 +882,7 @@ const COUNCIL_WIDE_SCHEMES = [
          than making a claim about the reader. */
       return {
         eligible: true,
+        url: crfPageFor(input),
         confidence: "possible",
         reason: "Every council in England runs a Crisis Payment scheme for people hit by a sudden financial shock — help with food, energy, other essentials, or replacing something you can't manage without. It replaced the Household Support Fund on 1 April 2026.",
         note: "Each council sets its own rules for this, including what counts as a low income in their area, so we can't tell you whether you'd qualify. Outside the cities and London boroughs it is usually run by the county council rather than the council that sends your council tax bill."
@@ -860,7 +896,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { NATIONAL_SCHEMES, LOCAL_SCHEMES, gbp, RATES_TAX_YEAR,
     ukTaxYearOf, ratesStaleness,
     weeklyIncome, annualIncome, isOverPensionAge,
-    COUNCIL_WIDE_SCHEMES, isEnglishCouncil,
+    COUNCIL_WIDE_SCHEMES, isEnglishCouncil, isWithheldScheme, CRF_COUNCIL_PAGES,
     CRF_GUIDANCE_URL, CRF_DISTRICT_HOUSING_EXIT, crfDistrictHousingExitPassed,
     WORKING_AGE_CTS_CAPITAL_SIGNPOST_LIMIT };
 }

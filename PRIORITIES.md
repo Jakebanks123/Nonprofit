@@ -75,11 +75,53 @@ if that holds up. **It has not been verified yet, and must be before it is
 planned** — a plausible-sounding summary of another nation's benefit system is
 the same failure mode as the invented council tax formula.
 
+### What a user actually sees today
+
+Concrete, as of 19 September 2026. Worth keeping current, because the
+"twelve pilot councils" framing has stopped being accurate.
+
+| where the user is | what they get |
+|---|---|
+| any English postcode | 6 national schemes + 2 Crisis and Resilience Fund cards |
+| Leeds, Liverpool, Sheffield, Bristol, Tower Hamlets | the above, plus **one** verified council-specific scheme each |
+| Manchester, Nottingham, Westminster, Hackney, Camden | the above, plus a direct link to their own council's CRF page |
+| Birmingham, Newcastle | the above, and nothing council-specific — both their entries are withheld |
+| Scotland, Wales, Northern Ireland | national UK benefits only; no routing, no local layer |
+
+**So the pilot set is effectively five councils, not twelve.** The verification
+pass on 19 Sep was mostly subtraction: five councils' entries turned out to be
+duplicates of CRF Crisis Payments and were deleted, and four more entries were
+withheld as disputed or unsupported.
+
+That is not a loss of real coverage — the deleted entries said nothing the CRF
+card does not say, and the withheld ones were not supported by their own
+councils. But the local layer is thinner than "twelve pilot councils" implies,
+and anything describing this app should say five. Nine of the twelve pilot
+councils now show exactly what a council with no local data at all shows.
+
 ---
 
 ## Recently completed
 
 ### September 2026
+
+- **Every council scheme entry has now been checked against its council's own
+  website.** Twelve entries went in unchecked; none came out unchecked. Five
+  were deleted as duplicates — Manchester, Nottingham, Westminster, Camden and
+  Hackney all turned out to be their council's delivery of CRF Crisis Payments,
+  which every English user already sees as one card, so the CRF entry now
+  carries each council's own page instead. Two were withheld as `unsupported`,
+  a new status meaning a proper search found nothing (Newcastle Compassionate
+  Fund returns no match on any domain at all). One more was withheld as
+  disputed. Four were verified with corrected names and deep links.
+
+  Disputed and unsupported entries are now filtered out of results in
+  `evaluateAll()`, so the results screen and the what-if tools cannot disagree
+  about what exists. They stay in the data with their note, because deleting
+  them invites someone re-adding the same claim from the same bad source.
+
+  Camden's entry is the clearest evidence none of these were ever researched:
+  "Resident Support Scheme" is **Islington's** scheme name, and Tower Hamlets'.
 
 - **The Crisis and Resilience Fund replaced the dead HSF and DHP entries.**
   22 of the 36 local entries named a scheme that stopped existing on 1 April
@@ -202,35 +244,87 @@ the same failure mode as the invented council tax formula.
 
 ## Tier 1 — before anyone else uses it
 
-### 1. Fourteen hand-written council schemes are still unverified
-The wrong half of this problem is fixed: the 22 generated entries that named
-dead schemes are gone. What remains is 14 hand-written entries — Leeds Healthy
-Holidays, Birmingham Energy Savers, Newcastle Compassionate Fund, Westminster
-Emergency Support Scheme and the rest — of which 12 have never been checked
-against anything, 1 is verified and 1 is disputed.
+Item numbering is unchanged from the 19 Sep revision; the content of items 1
+and 2 has moved on because the verification pass closed the old versions of
+both.
 
-This is still a claim: we tell someone their council runs a named scheme with
-particular eligibility. Two have been spot-checked, with mixed results. Leeds
-Healthy Holidays is real and running. The Leeds Council Tax Hardship Fund is
-not mentioned on Leeds' own Council Tax Support page, where it would most
-obviously sit — every billing authority holds the s13A(1)(c) discretionary
-reduction power, so something may exist under another name, but the app's
-specific claim is unsupported by the obvious source. That one is marked
-`disputed` in the data and still shown; whether to keep showing a disputed
-entry is a separate decision nobody has made yet.
+### 1. ~~The eligibility rules on council schemes are invented~~ — done 20 Sep
+The verification pass on 19 Sep checked all twelve outstanding entries against
+their councils' own websites. Every scheme that survived was real, and **not one
+of the app's eligibility rules matched what its council publishes.** The monthly
+income thresholds (£1,600, £1,700, £2,000) appeared on no council page anywhere
+— the same class of error as the `monthlyIncome < 1500` removed from the
+Housing Payment factory the same day.
 
-Fix: one council at a time. Find the real scheme page, check the scheme exists,
-record the result in `verification`. There is no shortcut and it does not
-generalise — these are each one council's own invention.
+**All five are now signposts.** The rule applied throughout: where a council
+publishes a test the app can answer, model it; where it publishes a judgement
+("insufficient income to meet their needs", "severe financial hardship"), show
+the card and quote the test rather than inventing a number that decides who
+sees it.
 
-### 2. Most scheme links point at a council homepage, not the scheme
-Of the entries that remain, most still link to a council homepage, so the
-"find out more" button drops the reader on a front page and leaves them to
-search. The two CRF entries point at gov.uk's "find your local council" rather
-than at each council's own CRF page.
+- **Liverpool** — £1,600 gate removed. No gate at all; the card says the
+  council publishes no income limit.
+- **Sheffield** — £1,600 gate removed, and the published **age 16+** condition
+  is now modelled, which it never was. The "insufficient income" half is
+  quoted, not computed.
+- **Bristol** — £1,700 gate removed, along with the unsupported claim that you
+  must already receive Council Tax Support **and** the £100 placeholder amount,
+  which priced a relief the policy leaves to the council's discretion. Renamed
+  to **Council Tax Discretionary Relief**, which is what Bristol calls it.
+- **Tower Hamlets** — £1,700 gate removed. Renamed to **Residents' Support
+  Scheme**, the council's own spelling.
+- **Leeds Healthy Holidays** — not on the original list, but carried the same
+  fault: a `monthlyIncome < 1600` standing in for free-school-meals
+  eligibility, which is earnings under £7,400/yr for a UC household and
+  nothing like £1,600 a month. Gate removed, the real condition named on the
+  card, and its link now points at the Healthy Holidays page rather than the
+  Leeds homepage.
 
-No logic, no maths — just finding the right page. Worth doing in the same pass
-as item 1, since verifying a scheme means being on its page anyway.
+**What this costs.** Every one of these councils' users now sees the card,
+where before an invented threshold hid it from some of them. That is the
+intended direction — the thresholds were excluding people on a figure nobody
+could check — but it does mean a Liverpool, Sheffield, Bristol or Tower Hamlets
+result page is one card longer for everyone.
+
+**One test was repaired alongside it.** Bristol's £100 was the last non-zero
+placeholder amount in the data, so removing it left the local-amount leak guard
+in `verify-edgecases.cjs` watching for something the data could no longer
+produce. The guard now injects a synthetic priced local scheme for the duration
+of the check and removes it afterwards, so it cannot go vacuous again as
+entries change. Verified able to fail on a deliberate leak.
+
+### 2. Two withheld entries need replacing, and two links are still weak
+Four entries are in the data but not shown, and two of them need real work
+before they can come back:
+
+- **Birmingham Be Active** (`disputed`). A free leisure offer is real, but the
+  council's own pages disagree about its terms — one says free activities "for
+  all Birmingham residents", another says the free offer now applies to direct
+  debit customers and that free paid-for classes "has now ceased". No council
+  page offers free leisure specifically to under-18s. Needs the current terms
+  confirmed with the council, and probably becomes two entries: Be Active, and
+  Passport to Leisure, which is a **paid** discount card.
+- **Birmingham Energy Savers** (`unsupported`). A 2012 Green Deal programme,
+  long closed. The two live council offers cannot be modelled with the
+  questions the app asks: free advice through Act on Energy has no gate at all,
+  and the Warm Homes Local Grant needs EPC band, tenure, and income *after*
+  housing costs — three fields the app does not have.
+- **Leeds Council Tax Hardship Fund** (`disputed`) and **Newcastle
+  Compassionate Fund** (`unsupported`) need no work: the first is unsupported
+  by Leeds' own Council Tax Support page, and the second returns no match on
+  any domain at all and is almost certainly invented.
+
+**And five pilot councils now have nothing of their own.** Manchester,
+Nottingham, Westminster, Hackney and Camden lost every entry as a CRF
+duplicate. That does not mean they run nothing beyond CRF — it means nobody has
+ever looked. The original entries were not research, so their absence is not
+evidence of absence. Finding whatever those five actually run is the same
+one-council-at-a-time job as Birmingham, now starting from an accurate picture
+rather than an invented one.
+
+Remaining link problems, down from 33: **Bristol** points at a policy PDF
+because no user-facing page for discretionary relief was found. That is now the
+only one — Leeds Healthy Holidays was repointed at its real page on 20 Sep.
 
 ---
 
@@ -277,7 +371,9 @@ PDF/webpage, updated annually, with genuinely different structures
 Institute/`entitledto` "rolling dataset" might be licensable rather than
 re-researched from scratch. Two realistic paths, not mutually exclusive:
 
-1. **Start with the 12 pilot councils.** Leeds publishes its scheme in
+1. **Start with the pilot councils** — nominally twelve, though only five
+   currently carry any local data of their own (see "What a user actually sees
+   today"). Leeds publishes its scheme in
    computable detail — four classes of UC claimant, 75% of maximum reduction
    for most, a £16,000 capital limit, and a surplus income deduction of 15% of
    income above the applicant's CTS personal allowance — which suggests this is

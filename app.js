@@ -517,7 +517,12 @@ function badgeKey({ scheme, result }) {
 function renderSchemeCard({ scheme, result }, showAmount) {
   const badge = BADGE[badgeKey({ scheme, result })];
   const amountText = showAmount ? formatAmount(result.amount) : "";
-  const host = linkHost(scheme.url);
+  /* A result may name a better page than the scheme itself can. The Crisis and
+     Resilience Fund entries apply to every English council, so their own url
+     is the gov.uk council finder; where we know the council's own CRF page
+     they return it here. Everything else falls back to scheme.url. */
+  const href = (result && result.url) || scheme.url;
+  const host = linkHost(href);
 
   return `
     <li class="rounded-field border border-line bg-surface p-4">
@@ -530,7 +535,7 @@ function renderSchemeCard({ scheme, result }, showAmount) {
       <p class="mt-2.5 text-base text-pretty text-muted">${result.reason}${result.note ? " " + result.note : ""}</p>
       <p class="mt-3.5">
         <a class="block rounded-full border border-brand-600 bg-brand-600 px-4 py-2.5 text-center text-base font-medium text-white no-underline"
-           href="${scheme.url}" target="_blank" rel="noopener noreferrer">Check ${scheme.name} on ${host}<span class="sr-only"> (opens in a new tab)</span></a>
+           href="${href}" target="_blank" rel="noopener noreferrer">Check ${scheme.name} on ${host}<span class="sr-only"> (opens in a new tab)</span></a>
       </p>
     </li>
   `;

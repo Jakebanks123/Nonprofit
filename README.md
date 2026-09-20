@@ -68,6 +68,33 @@ change. A third list, `COUNCIL_WIDE_SCHEMES`, holds schemes every English counci
 the two Crisis and Resilience Fund payment types — and is evaluated for every English council
 alongside that council's own array.
 
+An `evaluate()` may also return a `url`, which overrides the scheme's own link for that set of
+answers. The Crisis and Resilience Fund entries use it to point at a council's own CRF page where
+we have one, falling back to the gov.uk council finder everywhere else.
+
+### Every council scheme carries a verification record
+
+A local or council-wide entry needs a `verification` object recording what was actually checked:
+
+    { status: "unchecked" }                       nobody has looked yet
+    { status: "verified", date, source, note? }   someone read `source` on `date`
+    { status: "disputed", date, source, note }    the council's own site contradicts the entry
+    { status: "unsupported", date, note }         a proper search found nothing at all
+
+`date` is ISO `YYYY-MM-DD` and may not be in the future. `source` must be the https page actually
+read — optional only for `unsupported`, where by definition there is no page to cite.
+
+**Disputed and unsupported entries are not shown to users.** They stay in the data so the record of
+the claim, and why it failed, survives; deleting them invites someone re-adding the same entry
+later from the same bad source. `unchecked` entries *are* shown — nobody having looked yet is not
+evidence against a scheme.
+
+The bar for `verified` is the council's **own domain**, including its committee papers and policy
+PDFs. A description on Turn2us, Citizens Advice or the LGA does not count, however clear it is: a
+confident secondary source is how this app's original invented council tax formula happened.
+
+The data sanity pass in `verify-keyboard.js` fails the build on a missing or malformed record.
+
 There used to be two helper factories here, `makeHouseholdSupportFund()` and
 `makeDiscretionaryHousingPayment()`, which generated an entry per council on the assumption that
 nearly every English council runs something like each. Both were deleted in September 2026,
