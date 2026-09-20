@@ -120,7 +120,40 @@ console.log('\n=========== LOCAL SCHEME AMOUNTS MUST NOT REACH ANY TOTAL =======
      placeholder amount, and which council that is changes as entries are
      verified, disputed or corrected — hard-coding Leeds meant the guard went
      silently vacuous the moment its one priced entry was hidden as disputed.
-     Pick whichever council still exercises the property. */
+     Pick whichever council still exercises the property.
+
+     And a priced local scheme is INJECTED below, because choosing a council
+     was not enough. Bristol's 100 pound one-off was the last non-zero
+     placeholder in the real data, and it went when that entry became a
+     signpost — leaving this guard watching for a leak the data could no
+     longer produce. A test that cannot fail is the thing this repo keeps
+     accidentally shipping, so the property is given something to catch
+     instead of being left to the data. The probe exists only inside this
+     block, is removed in the finally below, and reaches no user: the call
+     sites exercised are still the real ones. */
+  const PROBE_COUNCIL = 'leeds';
+  const probe = {
+    id: 'edgecase-probe-priced-local',
+    name: 'Probe: a local scheme carrying a placeholder amount (test only)',
+    url: 'https://example.invalid/',
+    category: 'local',
+    verification: {
+      status: 'verified',
+      date: '2026-09-20',
+      source: 'https://example.invalid/',
+      note: 'Synthetic entry injected by verify-edgecases.cjs so the local-amount leak guard always has a priced local result to watch. Not part of the data.'
+    },
+    evaluate() {
+      return {
+        eligible: true,
+        confidence: 'possible',
+        amount: { value: 100, period: 'one-off' },
+        reason: 'Synthetic probe.'
+      };
+    }
+  };
+  app.LOCAL_SCHEMES[PROBE_COUNCIL].push(probe);
+
   const candidates = Object.keys(app.LOCAL_SCHEMES).filter(c => c !== 'other');
   const scored = candidates.map(council => {
     const input = app.sanitiseInput(baseInput({
@@ -140,10 +173,14 @@ console.log('\n=========== LOCAL SCHEME AMOUNTS MUST NOT REACH ANY TOTAL =======
   if (!best) {
     problems.push('GUARD IS VACUOUS: no council has any eligible local scheme, so nothing below is being tested');
   } else if (!best.priced) {
-    /* Not a failure. If no placeholder amounts survive in the data there is
-       nothing left to leak, and saying so is more useful than a red suite. */
-    console.log('No local scheme carries a non-zero placeholder amount any more — the leak checks below still run, but the data no longer contains the thing they guard against.');
+    /* Now a real failure. The probe above guarantees at least one priced
+       local result, so reaching here means the probe was filtered out and
+       the guard is watching nothing. */
+    problems.push('GUARD IS VACUOUS: the injected priced local scheme did not come back eligible, so no leak could be detected');
   }
+
+  const realData = app.LOCAL_SCHEMES[PROBE_COUNCIL].filter(sc => sc.id !== probe.id).length;
+  console.log(`Probe injected into ${PROBE_COUNCIL} (${realData} real entries there) so the leak guard always has a priced local result to watch.`);
 
   const localHousehold = (best || scored[0]).input;
 
@@ -180,6 +217,11 @@ console.log('\n=========== LOCAL SCHEME AMOUNTS MUST NOT REACH ANY TOTAL =======
   } finally {
     app.cashMonthlyAt = realCash;
     app.householdValueAnnual = realHousehold;
+    const at = app.LOCAL_SCHEMES[PROBE_COUNCIL].indexOf(probe);
+    if (at !== -1) app.LOCAL_SCHEMES[PROBE_COUNCIL].splice(at, 1);
+  }
+  if (app.LOCAL_SCHEMES[PROBE_COUNCIL].some(sc => sc.id === probe.id)) {
+    problems.push('the test probe was left in LOCAL_SCHEMES after the guard ran');
   }
 
   console.log(`  cashMonthlyAt() called ${seen.cashMonthlyAt}x, householdValueAnnual() called ${seen.householdValueAnnual}x during near-miss + cliff detection`);

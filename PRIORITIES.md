@@ -248,30 +248,50 @@ Item numbering is unchanged from the 19 Sep revision; the content of items 1
 and 2 has moved on because the verification pass closed the old versions of
 both.
 
-### 1. The eligibility rules on council schemes are invented
+### 1. ~~The eligibility rules on council schemes are invented~~ — done 20 Sep
 The verification pass on 19 Sep checked all twelve outstanding entries against
-their councils' own websites. Every scheme that survived is real — and **not one
-of the app's eligibility rules matches what its council publishes.**
+their councils' own websites. Every scheme that survived was real, and **not one
+of the app's eligibility rules matched what its council publishes.** The monthly
+income thresholds (£1,600, £1,700, £2,000) appeared on no council page anywhere
+— the same class of error as the `monthlyIncome < 1500` removed from the
+Housing Payment factory the same day.
 
-The monthly income thresholds (£1,600, £1,700, £2,000) appear on no council
-page anywhere. They are the same class of error as the `monthlyIncome < 1500`
-removed from the Housing Payment factory earlier that day, and they are still
-live:
+**All five are now signposts.** The rule applied throughout: where a council
+publishes a test the app can answer, model it; where it publishes a judgement
+("insufficient income to meet their needs", "severe financial hardship"), show
+the card and quote the test rather than inventing a number that decides who
+sees it.
 
-- **Liverpool** publishes no income threshold at all; the app applies £1,600.
-- **Sheffield** publishes "insufficient income to meet their needs" and an age
-  16+ condition. The app applies £1,600 and does not model the age condition.
-- **Bristol** is Council Tax Discretionary Relief under s13A(1)(c), and its
-  policy requires "severe financial hardship". The app applies £1,700 and also
-  claims you must already receive Council Tax Support, which the policy does
-  not say.
-- **Tower Hamlets** publishes no figure; the app applies £1,700.
+- **Liverpool** — £1,600 gate removed. No gate at all; the card says the
+  council publishes no income limit.
+- **Sheffield** — £1,600 gate removed, and the published **age 16+** condition
+  is now modelled, which it never was. The "insufficient income" half is
+  quoted, not computed.
+- **Bristol** — £1,700 gate removed, along with the unsupported claim that you
+  must already receive Council Tax Support **and** the £100 placeholder amount,
+  which priced a relief the policy leaves to the council's discretion. Renamed
+  to **Council Tax Discretionary Relief**, which is what Bristol calls it.
+- **Tower Hamlets** — £1,700 gate removed. Renamed to **Residents' Support
+  Scheme**, the council's own spelling.
+- **Leeds Healthy Holidays** — not on the original list, but carried the same
+  fault: a `monthlyIncome < 1600` standing in for free-school-meals
+  eligibility, which is earnings under £7,400/yr for a UC household and
+  nothing like £1,600 a month. Gate removed, the real condition named on the
+  card, and its link now points at the Healthy Holidays page rather than the
+  Leeds homepage.
 
-Fix: decide, per scheme, between dropping the gate to a signpost (the shape
-working-age Council Tax Support already uses) and modelling the published rule
-where the app has the answers for it. Hand-computed cases in
-`verify-maths.cjs` either way. This is the largest remaining correctness gap in
-the council data and it changes who sees what, so it wants its own review.
+**What this costs.** Every one of these councils' users now sees the card,
+where before an invented threshold hid it from some of them. That is the
+intended direction — the thresholds were excluding people on a figure nobody
+could check — but it does mean a Liverpool, Sheffield, Bristol or Tower Hamlets
+result page is one card longer for everyone.
+
+**One test was repaired alongside it.** Bristol's £100 was the last non-zero
+placeholder amount in the data, so removing it left the local-amount leak guard
+in `verify-edgecases.cjs` watching for something the data could no longer
+produce. The guard now injects a synthetic priced local scheme for the duration
+of the check and removes it afterwards, so it cannot go vacuous again as
+entries change. Verified able to fail on a deliberate leak.
 
 ### 2. Two withheld entries need replacing, and two links are still weak
 Four entries are in the data but not shown, and two of them need real work
@@ -303,8 +323,8 @@ one-council-at-a-time job as Birmingham, now starting from an accurate picture
 rather than an invented one.
 
 Remaining link problems, down from 33: **Bristol** points at a policy PDF
-because no user-facing page for discretionary relief was found, and **Leeds
-Healthy Holidays** still points at the Leeds homepage.
+because no user-facing page for discretionary relief was found. That is now the
+only one — Leeds Healthy Holidays was repointed at its real page on 20 Sep.
 
 ---
 

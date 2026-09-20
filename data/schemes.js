@@ -567,7 +567,7 @@ const LOCAL_SCHEMES = {
     {
       id: "leeds-healthy-holidays",
       name: "Leeds Healthy Holidays (school holiday support)",
-      url: "https://www.leeds.gov.uk/",
+      url: "https://moneyinformationcentre.leeds.gov.uk/healthy-holidays",
       category: "local",
       verification: {
         status: "verified",
@@ -575,14 +575,21 @@ const LOCAL_SCHEMES = {
         source: "https://moneyinformationcentre.leeds.gov.uk/healthy-holidays",
         note: "Leeds City Council's own page describes free activities with a hot meal for children eligible for income-related free school meals, at Easter, summer and Christmas, funded through the DfE Holiday Activities and Food programme. The page does not name a funding year, so the scheme running in 2026 is inferred from the page being current rather than stated on it."
       },
+      /* The published condition is that the child is eligible for
+         income-related free school meals. The app has no free-school-meals
+         question, and the `monthlyIncome < 1600` that used to stand in for
+         one was invented — FSM eligibility for a UC household is earnings
+         under 7,400 pounds a year, nothing like 1,600 a month. Rather than
+         keep a wrong proxy, the card is shown to any Leeds household with
+         children and names the real condition for the reader to check. */
       evaluate(input) {
         if (input.children <= 0) return { eligible: false };
-        if (!(input.receivingUC || input.monthlyIncome < 1600)) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
           amount: { value: 0, period: "n/a", display: "Free holiday activities & food" },
-          reason: "Free holiday clubs, activities and food during school holidays for children in low-income Leeds households."
+          reason: "Leeds runs free holiday clubs with activities and a hot meal at Easter, summer and Christmas, for children who get income-related free school meals.",
+          note: "It goes by free school meals eligibility, which we didn't ask about — check with Leeds or your child's school."
         };
       }
     }
@@ -643,13 +650,20 @@ const LOCAL_SCHEMES = {
         source: "https://liverpool.gov.uk/benefits/help-in-a-crisis/liverpool-citizens-support-scheme/",
         note: "The council's own page, under exactly this name — the only one of the twelve entries whose name matched what the council publishes. Page: \"If you find yourself in crisis you can apply for support to get food and necessities for you and your family including gas and electric vouchers (urgent needs) and furniture.\" The app's £1,600/month gate is not a published figure and the council states no income threshold."
       },
+      /* Signposted, not assessed. Liverpool publishes no income threshold
+         for this scheme; the 1,600/month gate that used to be here appeared
+         on no council page. Inventing a narrower version of a rule the
+         council has not written down decides who sees the card on a figure
+         nobody can check, so the card describes the scheme and leaves the
+         test to Liverpool — the shape working-age Council Tax Support and
+         the CRF Crisis Payment both use. */
       evaluate(input) {
-        if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
           amount: { value: 0, period: "n/a", display: "Crisis grants & essential items" },
-          reason: "Liverpool's local welfare scheme for residents facing a crisis, covering essential items, food and emergency costs."
+          reason: "Liverpool runs a local welfare scheme for residents in a crisis, covering food and necessities, gas and electricity vouchers, and furniture.",
+          note: "Liverpool doesn't publish an income limit for this, so we can't tell you whether you'd qualify — apply directly with the council."
         };
       }
     }
@@ -666,13 +680,20 @@ const LOCAL_SCHEMES = {
         source: "https://www.sheffield.gov.uk/benefits/apply-benefits-support/local-assistance-scheme",
         note: "Council page: \"The Local Assistance Scheme (LAS) provides Sheffield Independence Grants to support independent living and Sheffield Crisis Grants to help Sheffield residents in crisis situations who aren't receiving help.\" Published eligibility is residents who \"have insufficient income to meet their needs\" and are \"aged 16 years old or over\" — no figure. The app's £1,600/month gate is invented, and the age-16 condition is not modelled."
       },
+      /* Sheffield publishes two conditions: "insufficient income to meet
+         their needs", which is a judgement the council makes and not a
+         figure the app can test, and "aged 16 years old or over", which is
+         a real published rule the app can answer. So the invented
+         1,600/month gate goes and the age condition — previously not
+         modelled at all — takes its place. */
       evaluate(input) {
-        if (!(input.monthlyIncome < 1600 || input.hasDisabilityOrHealthCondition)) return { eligible: false };
+        if (input.age < 16) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
           amount: { value: 0, period: "n/a", display: "Crisis support (goods & vouchers)" },
-          reason: "Short-term crisis support for Sheffield residents, such as food vouchers or essential household items."
+          reason: "Sheffield runs Independence Grants for independent living and Crisis Grants for residents in a crisis — help such as food vouchers or essential household items.",
+          note: "Sheffield's published test is that you're 16 or over and have insufficient income to meet your needs. It doesn't set an income figure, so we can't tell you whether you'd qualify."
         };
       }
     }
@@ -680,7 +701,7 @@ const LOCAL_SCHEMES = {
   bristol: [
     {
       id: "bristol-council-tax-hardship",
-      name: "Bristol Council Tax Hardship Fund",
+      name: "Bristol Council Tax Discretionary Relief",
       url: "https://www.bristol.gov.uk/files/documents/8439-council-tax-discretionary-relief-policy/file",
       category: "local",
       verification: {
@@ -689,13 +710,18 @@ const LOCAL_SCHEMES = {
         source: "https://www.bristol.gov.uk/files/documents/8439-council-tax-discretionary-relief-policy/file",
         note: "Real, but the council does not call it a hardship fund. It is Council Tax Discretionary Relief, the s13A(1)(c) power every billing authority holds, set out in Bristol's own policy document: applicants must \"show that they are in severe financial hardship with insufficient funds for basic and essential needs, such as food, heating and medical expenses.\" No user-facing application page was found, only the policy — which is why the link is a PDF. The app's £1,700/month gate and its claim that you must already receive Council Tax Support are both unsupported by the policy."
       },
+      /* Three separate inventions removed here. The 1,700/month gate is on
+         no Bristol page; the claim that you must already receive Council Tax
+         Support is not in the policy; and the 100 pound amount was a
+         placeholder for a relief whose size the policy does not state — it
+         is discretionary and decided case by case. What the policy does say
+         is the test, quoted in the card below. */
       evaluate(input) {
-        if (input.monthlyIncome >= 1700) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
-          amount: { value: 100, period: "one-off" },
-          reason: "Bristol residents already getting Council Tax Support who are struggling can apply to this discretionary top-up fund."
+          reason: "Every council can reduce a council tax bill at its discretion under section 13A(1)(c). Bristol asks applicants to show severe financial hardship, with insufficient funds for basic and essential needs such as food, heating and medical expenses.",
+          note: "The amount is decided case by case, so there's no figure we can give you. Bristol publishes this as a policy document rather than an application page."
         };
       }
     }
@@ -729,7 +755,7 @@ const LOCAL_SCHEMES = {
   "tower-hamlets": [
     {
       id: "tower-hamlets-resident-support",
-      name: "Tower Hamlets Resident Support Scheme",
+      name: "Tower Hamlets Residents' Support Scheme",
       url: "https://www.towerhamlets.gov.uk/lgnl/advice_and_benefits/Residents_Support_Scheme.aspx",
       category: "local",
       verification: {
@@ -738,13 +764,16 @@ const LOCAL_SCHEMES = {
         source: "https://www.towerhamlets.gov.uk/lgnl/advice_and_benefits/Residents_Support_Scheme.aspx",
         note: "Council page: \"The Residents' Support Scheme is designed to help residents who are either in or at risk of being in crisis or are in need of immediate help and have no source of financial support.\" Note the council spells it Residents' Support Scheme. The app's £1,700/month gate is not published anywhere on the page."
       },
+      /* Signposted, not assessed. The 1,700/month gate appears nowhere on
+         the council's page, which states the test in words rather than
+         figures. */
       evaluate(input) {
-        if (!(input.monthlyIncome < 1700 || input.hasDisabilityOrHealthCondition || input.children > 0)) return { eligible: false };
         return {
           eligible: true,
           confidence: "possible",
           amount: { value: 0, period: "n/a", display: "Crisis grants & essential items" },
-          reason: "Tower Hamlets' local welfare scheme for residents facing a financial crisis or unexpected hardship."
+          reason: "Tower Hamlets runs a scheme for residents who are in, or at risk of, a crisis and need immediate help with no other source of financial support.",
+          note: "The council doesn't publish an income limit for this, so we can't tell you whether you'd qualify — apply directly with Tower Hamlets."
         };
       }
     }
